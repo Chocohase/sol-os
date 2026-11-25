@@ -1,0 +1,20 @@
+[Plymouth Theme]
+Name=Sol Eclipse
+Description=Sol OS (BC-250 Edition) Solar Eclipse Boot Splash
+ModuleName=two-step
+
+[two-step]
+ImageDir=/usr/share/plymouth/themes/sol-eclipse
+HorizontalAlignment=.5
+VerticalAlignment=.79
+WatermarkHorizontalAlignment=.5
+WatermarkVerticalAlignment=.44
+Transition=none
+TransitionDuration=0.0
+BackgroundStartColor=0x080a0f
+BackgroundEndColor=0x080a0f
+UseFirmwareBackground=false
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.62
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.35

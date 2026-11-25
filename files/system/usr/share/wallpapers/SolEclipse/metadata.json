@@ -1,0 +1,13 @@
+{
+  "KPackageStructure": "Plasma/Wallpaper",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Sol OS"
+      }
+    ],
+    "Id": "SolEclipse",
+    "License": "CC-BY-SA-4.0",
+    "Name": "Sol Eclipse"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "KPackageStructure": "Plasma/LookAndFeel",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Sol OS"
+      }
+    ],
+    "Category": "Global Theme",
+    "Description": "Sol OS (BC-250 Edition) Solar Eclipse Obsidian & Gold Global Theme",
+    "Id": "org.sol-os.eclipse",
+    "License": "GPL-3.0-or-later",
+    "Name": "Sol Eclipse",
+    "Version": "1.0"
+  },
+  "X-Plasma-API": "5.0"
+}

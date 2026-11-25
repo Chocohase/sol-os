@@ -1,0 +1,15 @@
+{
+  "name": "Sol Eclipse",
+  "author": "Sol OS",
+  "version": "1.0",
+  "manifest_version": 8,
+  "target": "System-Wide",
+  "description": "Obsidian dark and solar amber-gold theme matching Sol OS (BC-250 Edition).",
+  "inject": {
+    "shared.css": [
+      "SP",
+      "MainMenu",
+      "QuickAccess"
+    ]
+  }
+}

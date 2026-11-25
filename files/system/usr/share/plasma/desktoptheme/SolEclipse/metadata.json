@@ -1,0 +1,18 @@
+{
+  "KPackageStructure": "Plasma/Theme",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Sol OS"
+      }
+    ],
+    "Category": "Plasma Theme",
+    "Description": "Obsidian and solar gold Plasma 6 desktop style for Sol OS",
+    "EnabledByDefault": true,
+    "Id": "SolEclipse",
+    "License": "GPL-3.0-or-later",
+    "Name": "Sol Eclipse",
+    "Version": "1.0"
+  },
+  "X-Plasma-API": "6.0"
+}

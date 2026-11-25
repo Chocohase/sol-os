@@ -16,7 +16,8 @@ Built declaratively with [BlueBuild](https://blue-build.org/) on top of `ghcr.io
 | **Kernel Arguments** | `amdgpu.ppfeaturemask=0xffffffff` (unlocks full `amdgpu` clock/voltage/power controls on Cyan Skillfish) |
 | **Sleep / Daemon Fixes** | Masks `sleep.target`, `suspend.target`, `hibernate.target`, `hybrid-sleep.target` (with `/etc/systemd/sleep.conf.d/99-sol-disable-sleep.conf`) and masks `hhd.service` + `hhd@.service` (handheld daemon not applicable to BC-250 boards) |
 | **HelixSR Upscaling** | User service `sol-helixsr-setup.service` + system `/usr/lib/systemd/system/plugin_loader.service` (`sol-decky-launch`) + Decky **HelixSR Manager** + `helixsr-update` CLI (`/usr/libexec/sol-os/helixsr-update`, linked at `/usr/local/bin/helixsr-update`) |
-| **Included Utilities** | `mangohud`, `gamescope`, `lm_sensors`, `radeontop`, `vulkan-tools`, `jq`, `git`, `curl`, `unzip` |
+| **Sol Eclipse Theme** | `sol-eclipse` Plymouth boot splash (`initramfs`), `sol_startup.webm` Steam Game Mode startup movie, `Sol-Eclipse` CSS Loader theme, and KDE Plasma 6 Global Theme (`org.sol-os.eclipse`) via `sol-theme-setup.service` / `sol-theme-apply` |
+| **Included Utilities** | `mangohud` (`terra-mangohud`), `gamescope` (`terra-gamescope`), `lm_sensors`, `radeontop`, `vulkan-tools`, `jq`, `git`, `curl`, `unzip` |
 | **Image Signing** | Cryptographically signed via Sigstore `cosign` (`cosign.pub` + GitHub Actions `SIGNING_SECRET`) |
 
 > **Immutable Layout Note:** All Sol OS binaries and scripts live immutably under `/usr/libexec/sol-os/` and are symlinked into `/usr/local/bin/` at boot via `/usr/lib/tmpfiles.d/sol-os-local-bin.conf`, keeping `/usr` atomic across `rpm-ostree` / `bootc` updates.
@@ -274,3 +275,19 @@ If an overly aggressive frequency/voltage configuration triggers an immediate GP
    ```
 
 3. Reboot normally (`systemctl reboot`) once the service starts cleanly and temperatures/clocks read normally.
+
+---
+
+## 8. Sol Eclipse Theme (`sol-eclipse` / `org.sol-os.eclipse`)
+
+Sol OS bakes the **Sol Eclipse** obsidian-and-gold visual theme directly into the OS image across early boot, Steam Game Mode, and KDE Plasma Desktop Mode:
+
+- **Early Boot Splash (Plymouth):** `sol-eclipse` two-step theme (`/usr/share/plymouth/themes/sol-eclipse/`) baked into `initramfs` with centered solar eclipse, `SOL startup` typography, and golden ring spinner.
+- **Steam Game Mode Startup & CSS Loader:** `sol_startup.webm` (1080p VP9 startup animation provisioned to `~/.local/share/Steam/config/uioverrides/movies/deck_startup.webm`) and the `Sol-Eclipse` CSS Loader theme staged into `~/homebrew/themes/Sol-Eclipse/` (enable **Sol Eclipse** inside Decky's **CSS Loader** plugin if installed).
+- **KDE Plasma 6 Global Theme (`org.sol-os.eclipse`):** Solar Eclipse 2560×1440 wallpaper (`/usr/share/wallpapers/SolEclipse/`), `SolEclipse.colors` obsidian/gold palette, `SolEclipse` plasma style, QML login splash (`Splash.qml`), and desktop layout featuring a slim top bar (`Sol OS` launcher, system tray, clock), floating bottom dock, and desktop system/media widgets.
+- **Re-apply or Reset Theme (`sol-theme-apply`):**
+  ```bash
+  sol-theme-apply                 # Apply/repair theme defaults, Steam startup movie, and CSS theme
+  sol-theme-apply --force         # Re-apply even if ~/.config/sol-theme-applied exists
+  sol-theme-apply --reset-layout  # Re-apply Plasma Global Theme and reset panels/dock/widgets to Sol Eclipse defaults
+  ```

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="coronaGlow" cx="128" cy="128" r="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0.62" stop-color="#B87328" stop-opacity="0"/>
+      <stop offset="0.68" stop-color="#D9A44C" stop-opacity="0.52"/>
+      <stop offset="0.78" stop-color="#B87328" stop-opacity="0.26"/>
+      <stop offset="0.90" stop-color="#B87328" stop-opacity="0.07"/>
+      <stop offset="1.00" stop-color="#B87328" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="flareBloom" cx="199" cy="87" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0.00" stop-color="#F5C77E" stop-opacity="0.65"/>
+      <stop offset="0.42" stop-color="#D9A44C" stop-opacity="0.28"/>
+      <stop offset="0.78" stop-color="#B87328" stop-opacity="0.06"/>
+      <stop offset="1.00" stop-color="#B87328" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="coronaRing" x1="44" y1="212" x2="212" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0.00" stop-color="#B87328"/>
+      <stop offset="0.48" stop-color="#D9A44C"/>
+      <stop offset="0.86" stop-color="#F5C77E"/>
+      <stop offset="1.00" stop-color="#F5C77E"/>
+    </linearGradient>
+    <linearGradient id="innerRim" x1="56" y1="200" x2="206" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0.00" stop-color="#B87328" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#D9A44C" stop-opacity="0.92"/>
+      <stop offset="1.00" stop-color="#F5C77E" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="flareArc" x1="160" y1="50" x2="212" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0.00" stop-color="#D9A44C" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#F5C77E" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#FFF2D6" stop-opacity="1"/>
+      <stop offset="1.00" stop-color="#D9A44C" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="flareCusp" cx="200.3" cy="86.3" r="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0.00" stop-color="#FFF5DF" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#F5C77E" stop-opacity="0.50"/>
+      <stop offset="1.00" stop-color="#D9A44C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="128" cy="128" r="120" fill="url(#coronaGlow)"/>
+  <circle cx="199" cy="87" r="50" fill="url(#flareBloom)"/>
+  <circle cx="128" cy="128" r="88" fill="none" stroke="url(#coronaRing)" stroke-width="13"/>
+  <circle cx="128" cy="128" r="83.5" fill="none" stroke="url(#innerRim)" stroke-width="3.5"/>
+  <path d="M 159.65 49.65 A 84.5 84.5 0 0 1 211.68 139.76" fill="none" stroke="url(#flareArc)" stroke-width="4.5" stroke-linecap="round"/>
+  <circle cx="200.3" cy="86.3" r="14" fill="url(#flareCusp)"/>
+  <circle cx="128" cy="128" r="82" fill="#0A0D12"/>
+</svg>

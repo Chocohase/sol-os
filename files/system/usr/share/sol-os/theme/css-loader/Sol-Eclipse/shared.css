@@ -1,0 +1,168 @@
+/* Sol Eclipse — Decky CSS Loader Theme for Sol OS (BC-250 Edition)
+ * Palette: Obsidian (#080A0F / #0E1015), Elevated Slate (#161922), Solar Gold (#D9A44C / #E5B567)
+ */
+
+:root {
+  --sol-bg-void: #080A0F;
+  --sol-bg-obsidian: #0E1015;
+  --sol-bg-panel: #161922;
+  --sol-bg-panel-hover: #1D212D;
+  --sol-gold: #D9A44C;
+  --sol-gold-bright: #E5B567;
+  --sol-gold-dim: rgba(217, 164, 76, 0.16);
+  --sol-border-warm: rgba(217, 164, 76, 0.28);
+  --sol-border-focus: #E5B567;
+  --sol-glow: rgba(217, 164, 76, 0.32);
+  --sol-text-primary: #F2EFE9;
+  --sol-text-muted: #A3A8B5;
+
+  /* Steam GamepadUI system tokens */
+  --gpSystemDarkestGrey: #080A0F;
+  --gpSystemDarkerGrey: #0E1015;
+  --gpSystemDarkGrey: #161922;
+  --gpSystemGrey: #222735;
+  --gpSystemLightGrey: #7E8494;
+  --gpSystemLighterGrey: #B7BCC8;
+  --gpSystemLightestGrey: #F2EFE9;
+
+  --gpColor-Blue: #D9A44C;
+  --gpColor-BlueHi: #E5B567;
+  --gpColor-DarkBlue: #8E6728;
+  --gpColor-ChalkyBlue: #E5B567;
+
+  --gpBackground-DarkSoft: rgba(14, 16, 21, 0.92);
+  --gpBackground-DarkHard: rgba(8, 10, 15, 0.96);
+  --gpBackground-LightSoft: rgba(217, 164, 76, 0.14);
+  --gpBackground-LightMedium: rgba(217, 164, 76, 0.22);
+}
+
+/* Obsidian backdrops for SP, MainMenu, and QuickAccess */
+html,
+body,
+[class*="gamepadui_BasicHome_"],
+[class*="gamepadui_GamepadUIAudioContainer_"],
+[class*="library_AppPage_"],
+[class*="gamelist_GameList_"] {
+  background-color: var(--sol-bg-void);
+  color: var(--sol-text-primary);
+}
+
+[class*="mainmenu_Menu_"],
+[class*="quickaccessmenu_QuickAccessMenu_"],
+[class*="quickaccessmenu_TabContentColumn_"],
+[class*="footer_BasicFooter_"],
+[class*="header_Header_"] {
+  background-color: var(--sol-bg-obsidian);
+  border-color: var(--sol-border-warm);
+}
+
+/* Elevated cards, QAM panels, settings sections, and dialogs */
+[class*="quickaccesscontrols_PanelSection_"],
+[class*="quickaccesscontrols_PanelSectionRow_"],
+[class*="DialogContent_InnerWidth"],
+[class*="ModalPosition"] > div,
+[class*="settings_SettingsModal_"],
+[class*="gamepadpagedsettings_PagedSettingsDialog_PageContent_"],
+[class*="libraryhome_RecentGamesBackground_"],
+[class*="appdetailssection_AppDetailsSection_"] {
+  background-color: var(--sol-bg-panel);
+  border: 1px solid var(--sol-border-warm);
+}
+
+[class*="quickaccessmenu_QuickAccessMenu_"],
+[class*="mainmenu_Menu_"] {
+  border-left: 1px solid var(--sol-border-warm);
+  border-right: 1px solid var(--sol-border-warm);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+}
+
+[class*="footer_BasicFooter_"] {
+  border-top: 1px solid var(--sol-border-warm);
+}
+
+/* Solar amber-gold focus rings */
+.gpfocus,
+[class*="gpfocus"],
+:focus-visible {
+  outline: 2px solid var(--sol-border-focus) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px var(--sol-gold), 0 0 14px var(--sol-glow);
+}
+
+.gpfocuswithin {
+  box-shadow: 0 0 0 1px var(--sol-border-warm);
+}
+
+[class*="appportrait_AppPortrait_"].gpfocus,
+[class*="mainmenu_Item_"].gpfocus,
+[class*="quickaccessmenu_Tab_"].gpfocus,
+[class*="DialogButton"].gpfocus {
+  background-color: var(--sol-bg-panel-hover);
+  border-color: var(--sol-gold-bright);
+}
+
+/* Primary action buttons and active tabs */
+button[class*="Primary"],
+[class*="DialogButton"][class*="Primary"],
+[class*="playbar_PlayButton_"] {
+  background: linear-gradient(135deg, var(--sol-gold-bright), var(--sol-gold));
+  color: var(--sol-bg-void);
+  border: 1px solid var(--sol-gold-bright);
+  font-weight: 600;
+}
+
+[class*="quickaccessmenu_Tab_"][class*="Selected"],
+[class*="gamepadtabbedpage_Tab_"][class*="Selected"] {
+  color: var(--sol-gold-bright);
+  border-bottom: 2px solid var(--sol-gold-bright);
+  background-color: var(--sol-gold-dim);
+}
+
+/* Toggles, checkboxes, sliders, and progress bars */
+[class*="Toggle_"][class*="On"],
+[class*="toggle_ToggleSwitch_"][class*="On"],
+[class*="DialogToggle_Field"][class*="On"] {
+  background-color: var(--sol-gold);
+  border-color: var(--sol-gold-bright);
+}
+
+[class*="gamepadslider_SliderTrack_"] > [class*="gamepadslider_SliderTrackActive_"],
+[class*="slidercontrol_SliderTrack_"] > [class*="slidercontrol_SliderTrackActive_"],
+[class*="progressbar_ProgressBar_"] > div,
+progress::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--sol-gold), var(--sol-gold-bright));
+}
+
+[class*="gamepadslider_SliderTrack_"],
+[class*="slidercontrol_SliderTrack_"],
+[class*="progressbar_ProgressBar_"],
+progress::-webkit-progress-bar {
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--sol-border-warm);
+}
+
+[class*="gamepadslider_SliderHandle_"],
+[class*="slidercontrol_SliderHandle_"] {
+  background-color: var(--sol-gold-bright);
+  border: 2px solid var(--sol-bg-void);
+  box-shadow: 0 0 8px var(--sol-glow);
+}
+
+/* Subtle warm scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--sol-bg-void);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sol-border-warm);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sol-gold);
+}

@@ -49,6 +49,7 @@ apply_branding_to_file() {
   set_os_release_kv "${target_file}" "VARIANT" "BC-250 Edition"
   set_os_release_kv "${target_file}" "VARIANT_ID" "bc250"
   set_os_release_kv "${target_file}" "DEFAULT_HOSTNAME" "sol-os"
+  set_os_release_kv "${target_file}" "LOGO" "sol-os-logo"
 }
 
 main() {

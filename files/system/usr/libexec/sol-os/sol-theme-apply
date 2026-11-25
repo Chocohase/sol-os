@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sol OS (BC-250 Edition) — Per-user Sol Eclipse theme provisioning & repair tool.
+# Installs the Steam/Gamescope startup video, Decky CSS Loader Sol-Eclipse theme,
+# and KDE Plasma 6 user theme defaults cleanly and idempotently.
+
+THEME_SHARE_DIR="${THEME_SHARE_DIR:-/usr/share/sol-os/theme}"
+STARTUP_WEBM_SRC="${THEME_SHARE_DIR}/sol_startup.webm"
+CSS_THEME_SRC="${THEME_SHARE_DIR}/css-loader/Sol-Eclipse"
+HOMEBREW_DIR="${HOMEBREW_DIR:-${HOME}/homebrew}"
+STATE_FILE="${STATE_FILE:-${HOME}/.config/sol-theme-applied}"
+
+log() {
+  printf '[sol-theme-apply] %s\n' "$*" >&2
+}
+
+die() {
+  printf '[sol-theme-apply] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: sol-theme-apply [--force] [--reset-layout] [-h|--help]
+
+Provisions the Sol Eclipse theme assets for the current user:
+  - Copies sol_startup.webm to Steam Big Picture startup movie overrides
+  - Installs the Sol-Eclipse Decky CSS Loader theme into ~/homebrew/themes/
+  - Applies KDE Plasma 6 Sol Eclipse defaults (and live look-and-feel if in KDE)
+
+Options:
+  --force         Re-apply theme assets even if ~/.config/sol-theme-applied exists.
+  --reset-layout  Re-apply theme assets and pass --resetLayout when applying the
+                  KDE Plasma LookAndFeel package inside a live KDE session.
+  -h, --help      Show this help text.
+EOF
+}
+
+resolve_dir() {
+  local dir="$1"
+  if [ -d "${dir}" ]; then
+    ( cd -P -- "${dir}" 2>/dev/null && pwd -P )
+  fi
+}
+
+install_atomic_file() {
+  local src="$1"
+  local dst="$2"
+  local dst_dir=""
+  local tmp_dst=""
+
+  dst_dir="$(dirname "${dst}")"
+  mkdir -p "${dst_dir}"
+  tmp_dst="${dst}.tmp.$$"
+  cp -f "${src}" "${tmp_dst}"
+  chmod 0644 "${tmp_dst}"
+  mv -f "${tmp_dst}" "${dst}"
+}
+
+install_steam_startup_video() {
+  local steam_xdg="${HOME}/.local/share/Steam"
+  local steam_root="${HOME}/.steam/root"
+  local xdg_movie="${steam_xdg}/config/uioverrides/movies/deck_startup.webm"
+  local root_movie="${steam_root}/config/uioverrides/movies/deck_startup.webm"
+  local steam_xdg_real=""
+  local steam_root_real=""
+
+  if [ ! -s "${STARTUP_WEBM_SRC}" ]; then
+    log "WARNING: Startup video not found at ${STARTUP_WEBM_SRC}; skipping Steam startup movie install."
+    return 1
+  fi
+
+  log "Installing Steam startup movie -> ${xdg_movie}"
+  install_atomic_file "${STARTUP_WEBM_SRC}" "${xdg_movie}"
+
+  if [ -d "${steam_root}" ]; then
+    steam_xdg_real="$(resolve_dir "${steam_xdg}" || true)"
+    steam_root_real="$(resolve_dir "${steam_root}" || true)"
+    if [ -n "${steam_root_real}" ] && [ "${steam_root_real}" != "${steam_xdg_real}" ]; then
+      log "Installing Steam startup movie -> ${root_movie}"
+      install_atomic_file "${STARTUP_WEBM_SRC}" "${root_movie}"
+    fi
+  fi
+
+  return 0
+}
+
+install_css_loader_theme() {
+  local themes_dir="${HOMEBREW_DIR}/themes"
+  local dest_dir="${themes_dir}/Sol-Eclipse"
+  local staging_dir="${themes_dir}/.Sol-Eclipse.staging.$$"
+
+  if [ ! -d "${CSS_THEME_SRC}" ]; then
+    log "WARNING: CSS Loader theme directory not found at ${CSS_THEME_SRC}; skipping."
+    return 1
+  fi
+
+  mkdir -p "${themes_dir}"
+  rm -rf "${staging_dir}"
+  mkdir -p "${staging_dir}"
+  cp -R "${CSS_THEME_SRC}/." "${staging_dir}/"
+  chmod -R u+rwX,go+rX "${staging_dir}"
+
+  rm -rf "${dest_dir}"
+  mv "${staging_dir}" "${dest_dir}"
+  log "Installed Decky CSS Loader theme -> ${dest_dir}"
+  return 0
+}
+
+is_kde_desktop_session() {
+  local desktop_upper=""
+  if [ -n "${KDE_FULL_SESSION:-}" ]; then
+    return 0
+  fi
+  if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+    return 0
+  fi
+  desktop_upper="$(printf '%s' "${XDG_CURRENT_DESKTOP}" | tr '[:lower:]' '[:upper:]')"
+  case "${desktop_upper}" in
+    *KDE*|*PLASMA*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+apply_kde_defaults() {
+  local reset_layout="$1"
+  local applied=0
+
+  if command -v kwriteconfig6 >/dev/null 2>&1; then
+    log "Writing KDE Plasma 6 user theme configuration via kwriteconfig6..."
+    kwriteconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage org.sol-os.eclipse
+    kwriteconfig6 --file kdeglobals --group General --key ColorScheme SolEclipse
+    kwriteconfig6 --file plasmarc --group Theme --key name SolEclipse
+    kwriteconfig6 --file ksplashrc --group KSplash --key Engine KSplashQML
+    kwriteconfig6 --file ksplashrc --group KSplash --key Theme org.sol-os.eclipse
+    applied=1
+  else
+    log "kwriteconfig6 not found; skipping KDE user config writes."
+  fi
+
+  if command -v plasma-apply-lookandfeel >/dev/null 2>&1 && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
+    if is_kde_desktop_session; then
+      if [ "${reset_layout}" -eq 1 ]; then
+        log "Applying KDE LookAndFeel org.sol-os.eclipse with --resetLayout..."
+        plasma-apply-lookandfeel -a org.sol-os.eclipse --resetLayout \
+          || log "WARNING: plasma-apply-lookandfeel exited non-zero (session may not be ready)."
+      else
+        log "Applying KDE LookAndFeel org.sol-os.eclipse..."
+        plasma-apply-lookandfeel -a org.sol-os.eclipse \
+          || log "WARNING: plasma-apply-lookandfeel exited non-zero (session may not be ready)."
+      fi
+    else
+      log "Non-KDE graphical session (${XDG_CURRENT_DESKTOP:-unknown}); skipping live plasma-apply-lookandfeel."
+    fi
+  fi
+
+  [ "${applied}" -eq 1 ] && return 0 || return 1
+}
+
+write_state_file() {
+  local mode="$1"
+  local reset_layout="$2"
+  local steam_ok="$3"
+  local css_ok="$4"
+  local kde_ok="$5"
+  local state_dir=""
+  local state_tmp=""
+  local applied_at=""
+
+  state_dir="$(dirname "${STATE_FILE}")"
+  mkdir -p "${state_dir}"
+  applied_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_tmp="${STATE_FILE}.tmp.$$"
+
+  cat > "${state_tmp}" <<EOF
+APPLIED_AT="${applied_at}"
+MODE="${mode}"
+RESET_LAYOUT="${reset_layout}"
+STEAM_STARTUP_APPLIED="${steam_ok}"
+CSS_LOADER_APPLIED="${css_ok}"
+KDE_CONFIG_APPLIED="${kde_ok}"
+EOF
+  chmod 0644 "${state_tmp}"
+  mv -f "${state_tmp}" "${STATE_FILE}"
+}
+
+main() {
+  local force=0
+  local reset_layout=0
+  local mode="first-boot"
+  local steam_ok="0"
+  local css_ok="0"
+  local kde_ok="0"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force)
+        force=1
+        ;;
+      --reset-layout)
+        reset_layout=1
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown argument: $1 (try --help)"
+        ;;
+    esac
+    shift
+  done
+
+  if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+    die "Refusing to run as root (UID 0) so user Steam, Decky, and KDE configs are never owned by root."
+  fi
+
+  if [ -e "${STATE_FILE}" ] && [ "${force}" -eq 0 ] && [ "${reset_layout}" -eq 0 ]; then
+    log "Already applied (${STATE_FILE} exists); exiting cleanly."
+    exit 0
+  fi
+
+  if [ "${reset_layout}" -eq 1 ]; then
+    mode="reset-layout"
+  elif [ "${force}" -eq 1 ]; then
+    mode="force"
+  fi
+
+  if install_steam_startup_video; then
+    steam_ok="1"
+  fi
+
+  if install_css_loader_theme; then
+    css_ok="1"
+  fi
+
+  if apply_kde_defaults "${reset_layout}"; then
+    kde_ok="1"
+  fi
+
+  write_state_file "${mode}" "${reset_layout}" "${steam_ok}" "${css_ok}" "${kde_ok}"
+  log "Sol Eclipse theme provisioning complete (${STATE_FILE})."
+}
+
+main "$@"

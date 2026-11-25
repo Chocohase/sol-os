@@ -1,0 +1,12 @@
+[Unit]
+Description=Sol OS First-Boot Sol Eclipse Theme & Steam Startup Provisioning
+After=basic.target
+ConditionPathExists=!%h/.config/sol-theme-applied
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sol-os/sol-theme-apply
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target

@@ -12,6 +12,17 @@ stages:
         scripts:
           - install-bc250-governor.sh
 
+  - name: sol-theme-builder
+    from: ghcr.io/ublue-os/bazzite-deck:latest
+    modules:
+      - type: files
+        files:
+          - source: system
+            destination: /
+      - type: script
+        scripts:
+          - build-theme-assets.sh
+
 modules:
   - type: files
     files:
@@ -22,6 +33,36 @@ modules:
     from: bc250-governor-builder
     src: /out/usr/libexec/sol-os/cyan-skillfish-governor-smu
     dest: /usr/libexec/sol-os/cyan-skillfish-governor-smu
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/plymouth/themes/sol-eclipse
+    dest: /usr/share/plymouth/themes/sol-eclipse
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/sol-os/theme/sol_startup.webm
+    dest: /usr/share/sol-os/theme/sol_startup.webm
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/plasma/look-and-feel/org.sol-os.eclipse/contents/splash/images/eclipse.png
+    dest: /usr/share/plasma/look-and-feel/org.sol-os.eclipse/contents/splash/images/eclipse.png
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/pixmaps/sol-os-logo.png
+    dest: /usr/share/pixmaps/sol-os-logo.png
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/icons/hicolor/256x256/apps/sol-os-logo.png
+    dest: /usr/share/icons/hicolor/256x256/apps/sol-os-logo.png
+
+  - type: copy
+    from: sol-theme-builder
+    src: /out/usr/share/icons/hicolor/512x512/apps/sol-os-logo.png
+    dest: /usr/share/icons/hicolor/512x512/apps/sol-os-logo.png
 
   - type: dnf
     # Official Fedora repos are kept as default for reliable CI builds.
@@ -41,6 +82,7 @@ modules:
   - type: script
     scripts:
       - configure-branding.sh
+      - configure-theme.sh
       - stage-helixsr.sh
 
   - type: systemd
@@ -58,6 +100,7 @@ modules:
     user:
       enabled:
         - sol-helixsr-setup.service
+        - sol-theme-setup.service
 
   - type: kargs
     arch: x86_64
@@ -66,5 +109,7 @@ modules:
       # Optional Zen 2 performance gain at the cost of CPU side-channel mitigations.
       # Uncomment only if you accept the reduced side-channel security trade-off:
       # - mitigations=off
+
+  - type: initramfs
 
   - type: signing
