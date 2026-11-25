@@ -1,0 +1,18 @@
+/* Allow members of group wheel to start, stop, or restart Decky Loader units
+ * without an interactive password prompt for first-boot setup and helixsr-update.
+ */
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units") {
+        var unit = action.lookup("unit");
+        var verb = action.lookup("verb");
+        var allowedUnits = ["plugin_loader.service", "plugin_loader-release.service"];
+        var allowedVerbs = ["start", "stop", "restart"];
+
+        if (subject.isInGroup("wheel") &&
+            allowedUnits.indexOf(unit) !== -1 &&
+            allowedVerbs.indexOf(verb) !== -1) {
+            return polkit.Result.YES;
+        }
+    }
+    return polkit.Result.NOT_HANDLED;
+});

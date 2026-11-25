@@ -1,0 +1,13 @@
+[Unit]
+Description=Sol OS First-Boot Decky Loader & HelixSR Manager Provisioning
+Documentation=file:///usr/share/sol-os/README-RDNA2-HELIXSR.txt
+After=basic.target
+ConditionPathExists=!%h/.config/sol-helixsr-installed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sol-os/sol-helixsr-setup
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target

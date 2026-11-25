@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# First-boot and repair provisioning script for Decky Loader and HelixSR Manager.
+# Copies immutable staged payloads from /usr/share/sol-os/helixsr into the
+# user's ~/homebrew tree and starts/restarts plugin_loader.service.
+
+STAGE_DIR="${STAGE_DIR:-/usr/share/sol-os/helixsr}"
+HOMEBREW_DIR="${HOMEBREW_DIR:-${HOME}/homebrew}"
+STATE_FILE="${HOME}/.config/sol-helixsr-installed"
+PLUGIN_TARGET="${HOMEBREW_DIR}/plugins/HelixSR-Manager"
+CORE_STAGED_TARGET="${HOMEBREW_DIR}/data/HelixSR-Manager/staged"
+TMP_WORK=""
+
+cleanup() {
+    if [ -n "${TMP_WORK}" ] && [ -d "${TMP_WORK}" ]; then
+        rm -rf "${TMP_WORK}"
+    fi
+}
+trap cleanup EXIT
+
+log() {
+    printf '[sol-helixsr-setup] %s\n' "$*" >&2
+}
+
+die() {
+    printf '[sol-helixsr-setup] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+read_kv() {
+    local file="$1"
+    local key="$2"
+    if [ -f "${file}" ]; then
+        awk -F= -v k="${key}" '
+            $1 == k {
+                val = substr($0, length(k) + 2)
+                gsub(/^"/, "", val)
+                gsub(/"$/, "", val)
+                print val
+                exit
+            }
+        ' "${file}"
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+Usage: sol-helixsr-setup [--force] [-h|--help]
+
+Provisions Decky Loader, HelixSR Manager, and staged HelixSR core assets
+into ~/homebrew from /usr/share/sol-os/helixsr.
+
+Options:
+  --force    Re-apply staged Decky Loader, plugin, and core files even if
+             ~/.config/sol-helixsr-installed already exists.
+  -h, --help Show this help text.
+EOF
+}
+
+find_archive_in_dir() {
+    local dir="$1"
+    find "${dir}" -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.tgz' \) \
+        | awk 'NR == 1 { first = $0 } END { if (first != "") print first }'
+}
+
+extract_plugin_archive() {
+    local archive="$1"
+    local dest_dir="$2"
+    local extract_dir="${TMP_WORK}/extract"
+    local staging_dir="${HOMEBREW_DIR}/plugins/.HelixSR-Manager.staging.$$"
+    local lower_name
+    local plugin_json=""
+    local plugin_root=""
+
+    rm -rf "${extract_dir}" "${staging_dir}"
+    mkdir -p "${extract_dir}" "${staging_dir}"
+
+    lower_name="$(printf '%s' "${archive}" | tr '[:upper:]' '[:lower:]')"
+    case "${lower_name}" in
+        *.zip)
+            unzip -q "${archive}" -d "${extract_dir}"
+            ;;
+        *.tar.gz|*.tgz)
+            tar -xzf "${archive}" -C "${extract_dir}"
+            ;;
+        *)
+            die "Unsupported HelixSR Manager archive format: ${archive}"
+            ;;
+    esac
+
+    plugin_json="$(
+        find "${extract_dir}" -maxdepth 4 -type f -name 'plugin.json' -not -path '*/__MACOSX/*' \
+            | awk -F/ '
+                NF > 0 && (best == "" || NF < best_nf) {
+                    best_nf = NF
+                    best = $0
+                }
+                END {
+                    if (best != "") print best
+                }
+            '
+    )"
+
+    if [ -z "${plugin_json}" ] || [ ! -f "${plugin_json}" ]; then
+        die "Could not locate plugin.json inside staged archive: ${archive}"
+    fi
+
+    plugin_root="$(dirname "${plugin_json}")"
+    cp -R "${plugin_root}/." "${staging_dir}/"
+    chmod -R u+rwX,go+rX "${staging_dir}"
+
+    rm -rf "${dest_dir}"
+    mv "${staging_dir}" "${dest_dir}"
+}
+
+ensure_cef_markers() {
+    local steam_legacy="${HOME}/.steam/steam"
+    local steam_xdg="${HOME}/.local/share/Steam"
+    local found_root=0
+
+    if [ -d "${steam_legacy}" ]; then
+        touch "${steam_legacy}/.cef-enable-remote-debugging"
+        found_root=1
+    fi
+
+    if [ -d "${steam_xdg}" ]; then
+        touch "${steam_xdg}/.cef-enable-remote-debugging"
+        found_root=1
+    fi
+
+    if [ "${found_root}" -eq 0 ]; then
+        mkdir -p "${steam_xdg}"
+        touch "${steam_xdg}/.cef-enable-remote-debugging"
+        if [ ! -e "${steam_legacy}" ] && [ ! -L "${steam_legacy}" ]; then
+            mkdir -p "${HOME}/.steam"
+            ln -s "${steam_xdg}" "${steam_legacy}"
+        fi
+    fi
+}
+
+detect_system_unit() {
+    local unit
+    for unit in plugin_loader.service plugin_loader-release.service; do
+        if systemctl list-unit-files "${unit}" --no-legend --no-pager 2>/dev/null | grep -Eq "^${unit}[[:space:]]"; then
+            printf '%s\n' "${unit}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+configure_and_start_service() {
+    local unit_mode="none"
+    local sys_unit=""
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        log "systemctl not found; skipping plugin_loader service activation"
+        printf 'none\n'
+        return 0
+    fi
+
+    if sys_unit="$(detect_system_unit)"; then
+        log "Detected system unit ${sys_unit}; restarting via systemctl"
+        if systemctl restart --no-block "${sys_unit}" >&2; then
+            unit_mode="system:${sys_unit}"
+            printf '%s\n' "${unit_mode}"
+            return 0
+        fi
+        log "Warning: unable to restart system unit ${sys_unit}; falling back to user service"
+    fi
+
+    local service_template="${STAGE_DIR}/decky/plugin_loader-release.service"
+    local user_unit_dir="${HOME}/.config/systemd/user"
+    local user_unit="${user_unit_dir}/plugin_loader.service"
+    local user_unit_tmp="${TMP_WORK}/plugin_loader.service"
+    local escaped_homebrew=""
+
+    if [ ! -f "${service_template}" ]; then
+        die "Missing staged Decky service template: ${service_template}"
+    fi
+
+    mkdir -p "${user_unit_dir}"
+    escaped_homebrew="$(printf '%s' "${HOMEBREW_DIR}" | sed 's/[&|\\]/\\&/g')"
+
+    sed \
+        -e "s|\${HOMEBREW_FOLDER}|${escaped_homebrew}|g" \
+        -e "s|\$HOMEBREW_FOLDER|${escaped_homebrew}|g" \
+        -e '/^[[:space:]]*User=root[[:space:]]*$/d' \
+        -e 's|WantedBy=multi-user\.target|WantedBy=default.target|g' \
+        "${service_template}" \
+        > "${user_unit_tmp}"
+
+    install -m 0644 "${user_unit_tmp}" "${user_unit}"
+    systemctl --user daemon-reload >&2
+
+    if systemctl --user is-active --quiet plugin_loader.service 2>/dev/null; then
+        systemctl --user enable plugin_loader.service >/dev/null 2>&1 || true
+        systemctl --user restart --no-block plugin_loader.service >&2
+    else
+        systemctl --user enable plugin_loader.service >&2
+        systemctl --user start --no-block plugin_loader.service >&2
+    fi
+
+    unit_mode="user:plugin_loader.service"
+    printf '%s\n' "${unit_mode}"
+}
+
+main() {
+    local force=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force)
+                force=1
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "Unknown argument: $1 (try --help)"
+                ;;
+        esac
+        shift
+    done
+
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        die "Refusing to run as root (UID 0) so ~/homebrew is never created with root ownership."
+    fi
+
+    if [ -e "${STATE_FILE}" ] && [ "${force}" -eq 0 ]; then
+        log "Already provisioned (${STATE_FILE} exists); exiting cleanly."
+        exit 0
+    fi
+
+    if [ ! -d "${STAGE_DIR}" ]; then
+        die "Staged payload directory not found: ${STAGE_DIR}"
+    fi
+
+    local staged_loader="${STAGE_DIR}/decky/PluginLoader"
+    local mgr_archive=""
+
+    if [ ! -f "${staged_loader}" ]; then
+        die "Staged PluginLoader binary missing: ${staged_loader}"
+    fi
+
+    mgr_archive="$(find_archive_in_dir "${STAGE_DIR}/helixsr-manager")"
+    if [ -z "${mgr_archive}" ] || [ ! -f "${mgr_archive}" ]; then
+        die "Staged HelixSR Manager archive missing in: ${STAGE_DIR}/helixsr-manager"
+    fi
+
+    TMP_WORK="$(mktemp -d)"
+
+    mkdir -p \
+        "${HOMEBREW_DIR}/services" \
+        "${HOMEBREW_DIR}/plugins" \
+        "${HOMEBREW_DIR}/settings" \
+        "${HOMEBREW_DIR}/data" \
+        "${HOMEBREW_DIR}/logs" \
+        "${HOME}/.config"
+
+    ensure_cef_markers
+
+    if [ ! -f "${HOMEBREW_DIR}/services/PluginLoader" ] || [ "${force}" -eq 1 ]; then
+        log "Installing Decky PluginLoader into ${HOMEBREW_DIR}/services/PluginLoader"
+        install -m 0755 "${staged_loader}" "${HOMEBREW_DIR}/services/PluginLoader"
+    fi
+
+    if [ ! -d "${PLUGIN_TARGET}" ] || [ "${force}" -eq 1 ]; then
+        log "Extracting HelixSR Manager plugin into ${PLUGIN_TARGET}"
+        extract_plugin_archive "${mgr_archive}" "${PLUGIN_TARGET}"
+    fi
+
+    if [ -d "${STAGE_DIR}/helixsr-core" ]; then
+        log "Syncing staged HelixSR core payload into ${CORE_STAGED_TARGET}"
+        rm -rf "${CORE_STAGED_TARGET}"
+        mkdir -p "${CORE_STAGED_TARGET}"
+        cp -R "${STAGE_DIR}/helixsr-core/." "${CORE_STAGED_TARGET}/"
+        chmod -R u+rwX,go+rX "${HOMEBREW_DIR}/data/HelixSR-Manager"
+    fi
+
+    local unit_mode=""
+    unit_mode="$(configure_and_start_service)"
+
+    local manifest="${STAGE_DIR}/manifest.env"
+    local staged_at=""
+    local decky_version=""
+    local core_version=""
+    local mgr_version=""
+    local installed_at=""
+
+    staged_at="$(read_kv "${manifest}" "STAGED_AT")"
+    decky_version="$(read_kv "${manifest}" "DECKY_VERSION")"
+    core_version="$(read_kv "${manifest}" "HELIXSR_CORE_VERSION")"
+    mgr_version="$(read_kv "${manifest}" "HELIXSR_MANAGER_VERSION")"
+
+    if [ -z "${decky_version}" ] && [ -f "${STAGE_DIR}/decky/version.txt" ]; then
+        decky_version="$(head -n 1 "${STAGE_DIR}/decky/version.txt")"
+    fi
+    if [ -z "${core_version}" ] && [ -f "${STAGE_DIR}/helixsr-core/version.txt" ]; then
+        core_version="$(head -n 1 "${STAGE_DIR}/helixsr-core/version.txt")"
+    fi
+    if [ -z "${mgr_version}" ] && [ -f "${STAGE_DIR}/helixsr-manager/version.txt" ]; then
+        mgr_version="$(head -n 1 "${STAGE_DIR}/helixsr-manager/version.txt")"
+    fi
+
+    installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    local setup_mode="first-boot"
+    if [ "${force}" -eq 1 ]; then
+        setup_mode="force"
+    fi
+
+    local state_tmp="${STATE_FILE}.tmp.$$"
+    cat > "${state_tmp}" <<EOF
+INSTALLED_AT="${installed_at}"
+UPDATED_AT="${installed_at}"
+SETUP_MODE="${setup_mode}"
+STAGED_AT="${staged_at}"
+DECKY_VERSION="${decky_version:-unknown}"
+HELIXSR_CORE_VERSION="${core_version:-unknown}"
+HELIXSR_MANAGER_VERSION="${mgr_version:-unknown}"
+SYSTEMD_UNIT_MODE="${unit_mode}"
+EOF
+    mv -f "${state_tmp}" "${STATE_FILE}"
+
+    log "Provisioning complete (${STATE_FILE})."
+}
+
+main "$@"

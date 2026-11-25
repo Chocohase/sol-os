@@ -1,0 +1,16 @@
+[Unit]
+Description=Sol OS SteamDeck Plugin Loader (Decky Loader)
+After=network.target local-fs.target
+ConditionPathExistsGlob=/home/*/homebrew/services/PluginLoader
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=5
+KillMode=process
+TimeoutStopSec=15
+ExecStart=/usr/libexec/sol-os/sol-decky-launch
+
+[Install]
+WantedBy=multi-user.target

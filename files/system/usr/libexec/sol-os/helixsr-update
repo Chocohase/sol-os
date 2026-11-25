@@ -1,0 +1,618 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Runtime updater for Decky Loader, HelixSR Manager plugin, and staged HelixSR
+# core assets in ~/homebrew. Exposed at /usr/local/bin/helixsr-update via tmpfiles.d.
+
+STAGE_DIR="${STAGE_DIR:-/usr/share/sol-os/helixsr}"
+SETUP_BIN="${SOL_HELIXSR_SETUP_BIN:-/usr/libexec/sol-os/sol-helixsr-setup}"
+HOMEBREW_DIR="${HOMEBREW_DIR:-${HOME}/homebrew}"
+STATE_FILE="${HOME}/.config/sol-helixsr-installed"
+PLUGIN_TARGET="${HOMEBREW_DIR}/plugins/HelixSR-Manager"
+CORE_STAGED_TARGET="${HOMEBREW_DIR}/data/HelixSR-Manager/staged"
+
+DECKY_PLUGIN_LOADER_URL="https://github.com/SteamDeckHomebrew/decky-loader/releases/latest/download/PluginLoader"
+DECKY_RELEASE_API="https://api.github.com/repos/SteamDeckHomebrew/decky-loader/releases/latest"
+HELIXSR_REPO="lonewolf0622/HelixSR"
+HELIXSR_MAIN_TARBALL="https://github.com/lonewolf0622/HelixSR/archive/refs/heads/main.tar.gz"
+MANAGER_REPO="PeroTuncay/DeckyHelixSRManager"
+MANAGER_MAIN_TARBALL="https://github.com/PeroTuncay/DeckyHelixSRManager/archive/refs/heads/main.tar.gz"
+
+TMP_WORK=""
+
+cleanup() {
+    if [ -n "${TMP_WORK}" ] && [ -d "${TMP_WORK}" ]; then
+        rm -rf "${TMP_WORK}"
+    fi
+}
+trap cleanup EXIT
+
+log() {
+    printf '[helixsr-update] %s\n' "$*" >&2
+}
+
+die() {
+    printf '[helixsr-update] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+require_cmd() {
+    local cmd="$1"
+    if ! command -v "${cmd}" >/dev/null 2>&1; then
+        die "Required command not found: ${cmd}"
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+Usage: helixsr-update [OPTION]
+
+Updates Decky Loader, HelixSR Manager, and HelixSR core payloads in ~/homebrew.
+
+Options:
+  (no arguments)      Update Decky Loader PluginLoader, HelixSR Manager plugin,
+                      and HelixSR core staged cache, then restart plugin_loader.
+  --plugin-only       Update only HelixSR Manager plugin and restart plugin_loader.
+  --decky-only        Update only Decky Loader PluginLoader and restart plugin_loader.
+  --reinstall-staged  Restore/re-apply the immutable OS-staged payloads via
+                      sol-helixsr-setup --force.
+  --check             Query GitHub latest release tags and compare against
+                      installed/staged versions without modifying files.
+  -h, --help          Show this help text and RDNA 2 compatibility guidance.
+
+RDNA 2 (GFX1013 / AMD BC-250) Compatibility Warning:
+  HelixSR uses packed FP16 compute paths on RDNA 2 for DLSS 3.7 (CNN Preset E)
+  and HLX FSR 4 upscaling.
+  CRITICAL: Do NOT stack lsfg-vk frame generation launch options alongside
+  HelixSR. Running lsfg-vk and HelixSR together on RDNA 2 causes severe
+  frame-pacing judder, swapchain stalls, and compute queue contention.
+EOF
+}
+
+gh_curl() {
+    local is_api=0
+    local arg
+    for arg in "$@"; do
+        case "${arg}" in
+            https://api.github.com/*) is_api=1 ;;
+        esac
+    done
+
+    if [ "${is_api}" -eq 1 ]; then
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl -fsSL --retry 3 --retry-delay 2 \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "User-Agent: sol-os-helixsr-update" \
+                "$@"
+        else
+            curl -fsSL --retry 3 --retry-delay 2 \
+                -H "Accept: application/vnd.github+json" \
+                -H "User-Agent: sol-os-helixsr-update" \
+                "$@"
+        fi
+    else
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl -fsSL --retry 3 --retry-delay 2 \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "User-Agent: sol-os-helixsr-update" \
+                "$@"
+        else
+            curl -fsSL --retry 3 --retry-delay 2 \
+                -H "User-Agent: sol-os-helixsr-update" \
+                "$@"
+        fi
+    fi
+}
+
+read_kv() {
+    local file="$1"
+    local key="$2"
+    if [ -f "${file}" ]; then
+        awk -F= -v k="${key}" '
+            $1 == k {
+                val = substr($0, length(k) + 2)
+                gsub(/^"/, "", val)
+                gsub(/"$/, "", val)
+                print val
+                exit
+            }
+        ' "${file}"
+    fi
+}
+
+sanitize_filename() {
+    local raw="$1"
+    local base
+    base="$(basename -- "${raw}")"
+    printf '%s' "${base}" | tr -cd 'A-Za-z0-9._-'
+}
+
+fetch_release_json() {
+    local repo="$1"
+    local json=""
+    local first=""
+
+    if json="$(gh_curl "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null)" && [ -n "${json}" ]; then
+        if printf '%s' "${json}" | jq -e '(.tag_name? // "") != ""' >/dev/null 2>&1; then
+            printf '%s' "${json}"
+            return 0
+        fi
+    fi
+
+    if json="$(gh_curl "https://api.github.com/repos/${repo}/releases?per_page=10" 2>/dev/null)" && [ -n "${json}" ]; then
+        first="$(printf '%s' "${json}" | jq -c 'if type == "array" then (.[0] // empty) else empty end' 2>/dev/null || true)"
+        if [ -n "${first}" ] && printf '%s' "${first}" | jq -e '(.tag_name? // "") != ""' >/dev/null 2>&1; then
+            printf '%s' "${first}"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+download_nonempty() {
+    local url="$1"
+    local dest="$2"
+    gh_curl "${url}" -o "${dest}"
+    if [ ! -s "${dest}" ]; then
+        die "Downloaded file is empty: ${dest} (from ${url})"
+    fi
+}
+
+extract_plugin_archive() {
+    local archive="$1"
+    local dest_dir="$2"
+    local extract_dir="${TMP_WORK}/extract"
+    local staging_dir="${HOMEBREW_DIR}/plugins/.HelixSR-Manager.staging.$$"
+    local lower_name
+    local plugin_json=""
+    local plugin_root=""
+
+    rm -rf "${extract_dir}" "${staging_dir}"
+    mkdir -p "${extract_dir}" "${staging_dir}"
+
+    lower_name="$(printf '%s' "${archive}" | tr '[:upper:]' '[:lower:]')"
+    case "${lower_name}" in
+        *.zip)
+            unzip -q "${archive}" -d "${extract_dir}"
+            ;;
+        *.tar.gz|*.tgz)
+            tar -xzf "${archive}" -C "${extract_dir}"
+            ;;
+        *)
+            die "Unsupported HelixSR Manager archive format: ${archive}"
+            ;;
+    esac
+
+    plugin_json="$(
+        find "${extract_dir}" -maxdepth 4 -type f -name 'plugin.json' -not -path '*/__MACOSX/*' \
+            | awk -F/ '
+                NF > 0 && (best == "" || NF < best_nf) {
+                    best_nf = NF
+                    best = $0
+                }
+                END {
+                    if (best != "") print best
+                }
+            '
+    )"
+
+    if [ -z "${plugin_json}" ] || [ ! -f "${plugin_json}" ]; then
+        die "Could not locate plugin.json inside downloaded archive: ${archive}"
+    fi
+
+    plugin_root="$(dirname "${plugin_json}")"
+    cp -R "${plugin_root}/." "${staging_dir}/"
+    chmod -R u+rwX,go+rX "${staging_dir}"
+
+    rm -rf "${dest_dir}"
+    mv "${staging_dir}" "${dest_dir}"
+}
+
+detect_system_unit() {
+    local unit
+    for unit in plugin_loader.service plugin_loader-release.service; do
+        if systemctl list-unit-files "${unit}" --no-legend --no-pager 2>/dev/null | grep -Eq "^${unit}[[:space:]]"; then
+            printf '%s\n' "${unit}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+restart_plugin_loader() {
+    local sys_unit=""
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        log "systemctl not available; skipping plugin_loader restart"
+        printf 'none\n'
+        return 0
+    fi
+
+    if sys_unit="$(detect_system_unit)"; then
+        log "Restarting system unit ${sys_unit}"
+        if systemctl restart --no-block "${sys_unit}" >&2; then
+            printf 'system:%s\n' "${sys_unit}"
+            return 0
+        fi
+        log "Warning: unable to restart system unit ${sys_unit}; checking user service fallback"
+    fi
+
+    local user_unit="${HOME}/.config/systemd/user/plugin_loader.service"
+    if [ -f "${user_unit}" ] || systemctl --user list-unit-files plugin_loader.service --no-legend --no-pager 2>/dev/null | grep -Eq '^plugin_loader\.service[[:space:]]'; then
+        log "Restarting user unit plugin_loader.service"
+        systemctl --user daemon-reload >&2
+        if systemctl --user is-active --quiet plugin_loader.service 2>/dev/null; then
+            systemctl --user restart --no-block plugin_loader.service >&2
+        else
+            systemctl --user enable plugin_loader.service >&2
+            systemctl --user start --no-block plugin_loader.service >&2
+        fi
+        printf 'user:plugin_loader.service\n'
+        return 0
+    fi
+
+    log "Warning: no plugin_loader systemd unit found; run 'helixsr-update --reinstall-staged' to provision."
+    printf 'none\n'
+}
+
+resolve_decky_latest_tag() {
+    local json=""
+    local tag=""
+    if json="$(gh_curl "${DECKY_RELEASE_API}" 2>/dev/null)" && [ -n "${json}" ]; then
+        tag="$(printf '%s' "${json}" | jq -r '.tag_name // empty' 2>/dev/null || true)"
+    fi
+    if [ -n "${tag}" ]; then
+        printf '%s\n' "${tag}"
+    else
+        printf 'latest\n'
+    fi
+}
+
+resolve_helixsr_release_info() {
+    # Sets global HELIXSR_JSON, RESOLVED_CORE_VER, RESOLVED_CORE_URL, RESOLVED_CORE_FILE
+    HELIXSR_JSON=""
+    RESOLVED_CORE_VER=""
+    RESOLVED_CORE_URL=""
+    RESOLVED_CORE_FILE=""
+
+    if HELIXSR_JSON="$(fetch_release_json "${HELIXSR_REPO}")"; then
+        RESOLVED_CORE_VER="$(printf '%s' "${HELIXSR_JSON}" | jq -r '.tag_name // "unknown"')"
+        local asset_json=""
+        asset_json="$(printf '%s' "${HELIXSR_JSON}" | jq -c '
+            (
+                [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                    ($n | endswith(".tar.gz") or endswith(".tgz") or endswith(".zip")) and
+                    (($n | contains(".exe") or contains(".msi") or contains("windows") or contains("win64") or contains("win32") or contains("manager") or contains("decky") or contains("plugin")) | not) and
+                    ($n | contains("linux") or contains("deck") or contains("steamos"))
+                )][0]
+            ) // (
+                [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                    ($n | endswith(".tar.gz") or endswith(".tgz") or endswith(".zip")) and
+                    (($n | contains(".exe") or contains(".msi") or contains("windows") or contains("win64") or contains("win32") or contains("manager") or contains("decky") or contains("plugin")) | not)
+                )][0]
+            ) // (
+                [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                    ($n | endswith(".tar.gz") or endswith(".tgz") or endswith(".zip")) and
+                    (($n | contains(".exe") or contains(".msi") or contains("manager") or contains("decky") or contains("plugin")) | not)
+                )][0]
+            ) // empty
+        ')"
+
+        if [ -n "${asset_json}" ]; then
+            RESOLVED_CORE_URL="$(printf '%s' "${asset_json}" | jq -r '.browser_download_url // empty')"
+            RESOLVED_CORE_FILE="$(sanitize_filename "$(printf '%s' "${asset_json}" | jq -r '.name // empty')")"
+        fi
+
+        if [ -z "${RESOLVED_CORE_URL}" ]; then
+            RESOLVED_CORE_URL="$(printf '%s' "${HELIXSR_JSON}" | jq -r '.tarball_url // empty')"
+            RESOLVED_CORE_FILE="HelixSR-$(sanitize_filename "${RESOLVED_CORE_VER}").tar.gz"
+        fi
+    else
+        RESOLVED_CORE_VER="main"
+        RESOLVED_CORE_URL="${HELIXSR_MAIN_TARBALL}"
+        RESOLVED_CORE_FILE="HelixSR-main.tar.gz"
+    fi
+}
+
+resolve_manager_release_info() {
+    # Optionally consumes HELIXSR_JSON if already fetched; sets RESOLVED_MGR_*
+    RESOLVED_MGR_VER=""
+    RESOLVED_MGR_URL=""
+    RESOLVED_MGR_FILE=""
+    RESOLVED_MGR_SOURCE=""
+
+    if [ -n "${HELIXSR_JSON:-}" ]; then
+        local mgr_in_helixsr=""
+        mgr_in_helixsr="$(printf '%s' "${HELIXSR_JSON}" | jq -c '
+            [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                ($n | endswith(".zip") or endswith(".tar.gz") or endswith(".tgz")) and
+                ($n | contains("manager") or contains("decky") or contains("plugin"))
+            )][0] // empty
+        ')"
+        if [ -n "${mgr_in_helixsr}" ]; then
+            RESOLVED_MGR_VER="$(printf '%s' "${HELIXSR_JSON}" | jq -r '.tag_name // "unknown"')"
+            RESOLVED_MGR_URL="$(printf '%s' "${mgr_in_helixsr}" | jq -r '.browser_download_url // empty')"
+            RESOLVED_MGR_FILE="$(sanitize_filename "$(printf '%s' "${mgr_in_helixsr}" | jq -r '.name // empty')")"
+            RESOLVED_MGR_SOURCE="${HELIXSR_REPO}"
+            return 0
+        fi
+    fi
+
+    local mgr_json=""
+    if mgr_json="$(fetch_release_json "${MANAGER_REPO}")"; then
+        local mgr_asset=""
+        mgr_asset="$(printf '%s' "${mgr_json}" | jq -c '
+            [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                $n | endswith(".zip") or endswith(".tar.gz") or endswith(".tgz")
+            )][0] // empty
+        ')"
+        if [ -n "${mgr_asset}" ]; then
+            RESOLVED_MGR_VER="$(printf '%s' "${mgr_json}" | jq -r '.tag_name // "latest"')"
+            RESOLVED_MGR_URL="$(printf '%s' "${mgr_asset}" | jq -r '.browser_download_url // empty')"
+            RESOLVED_MGR_FILE="$(sanitize_filename "$(printf '%s' "${mgr_asset}" | jq -r '.name // empty')")"
+            RESOLVED_MGR_SOURCE="${MANAGER_REPO}"
+            return 0
+        fi
+    fi
+
+    RESOLVED_MGR_VER="main"
+    RESOLVED_MGR_URL="${MANAGER_MAIN_TARBALL}"
+    RESOLVED_MGR_FILE="DeckyHelixSRManager-main.tar.gz"
+    RESOLVED_MGR_SOURCE="${MANAGER_REPO}"
+}
+
+get_local_version() {
+    local component="$1"
+    local val=""
+
+    case "${component}" in
+        decky)
+            val="$(read_kv "${STATE_FILE}" "DECKY_VERSION")"
+            if [ -z "${val}" ] && [ -f "${STAGE_DIR}/decky/version.txt" ]; then
+                val="$(head -n 1 "${STAGE_DIR}/decky/version.txt")"
+            fi
+            ;;
+        core)
+            if [ -f "${CORE_STAGED_TARGET}/version.txt" ]; then
+                val="$(head -n 1 "${CORE_STAGED_TARGET}/version.txt")"
+            fi
+            if [ -z "${val}" ]; then
+                val="$(read_kv "${STATE_FILE}" "HELIXSR_CORE_VERSION")"
+            fi
+            if [ -z "${val}" ] && [ -f "${STAGE_DIR}/helixsr-core/version.txt" ]; then
+                val="$(head -n 1 "${STAGE_DIR}/helixsr-core/version.txt")"
+            fi
+            ;;
+        manager)
+            val="$(read_kv "${STATE_FILE}" "HELIXSR_MANAGER_VERSION")"
+            if [ -z "${val}" ] && [ -f "${PLUGIN_TARGET}/plugin.json" ]; then
+                val="$(jq -r '.version // empty' "${PLUGIN_TARGET}/plugin.json" 2>/dev/null || true)"
+            fi
+            if [ -z "${val}" ] && [ -f "${STAGE_DIR}/helixsr-manager/version.txt" ]; then
+                val="$(head -n 1 "${STAGE_DIR}/helixsr-manager/version.txt")"
+            fi
+            ;;
+    esac
+
+    printf '%s\n' "${val:-unknown}"
+}
+
+run_check() {
+    require_cmd curl
+    require_cmd jq
+
+    local local_decky=""
+    local local_core=""
+    local local_mgr=""
+    local remote_decky=""
+    local HELIXSR_JSON=""
+    local RESOLVED_CORE_VER="" RESOLVED_CORE_URL="" RESOLVED_CORE_FILE=""
+    local RESOLVED_MGR_VER="" RESOLVED_MGR_URL="" RESOLVED_MGR_FILE="" RESOLVED_MGR_SOURCE=""
+
+    local_decky="$(get_local_version decky)"
+    local_core="$(get_local_version core)"
+    local_mgr="$(get_local_version manager)"
+
+    remote_decky="$(resolve_decky_latest_tag)"
+    resolve_helixsr_release_info
+    resolve_manager_release_info
+
+    printf '%-20s %-20s %-20s %s\n' "COMPONENT" "INSTALLED/STAGED" "UPSTREAM_LATEST" "STATUS"
+    printf '%-20s %-20s %-20s %s\n' "--------------------" "--------------------" "--------------------" "----------------"
+
+    print_check_row "Decky Loader" "${local_decky}" "${remote_decky}"
+    print_check_row "HelixSR Core" "${local_core}" "${RESOLVED_CORE_VER}"
+    print_check_row "HelixSR Manager" "${local_mgr}" "${RESOLVED_MGR_VER}"
+}
+
+print_check_row() {
+    local name="$1"
+    local cur="$2"
+    local latest="$3"
+    local status="unknown"
+
+    if [ "${latest}" = "latest" ] || [ "${latest}" = "main" ]; then
+        if [ "${cur}" = "${latest}" ]; then
+            status="up-to-date (${latest})"
+        else
+            status="check/untagged"
+        fi
+    elif [ "${cur}" = "${latest}" ]; then
+        status="up-to-date"
+    else
+        status="update-available"
+    fi
+
+    printf '%-20s %-20s %-20s %s\n' "${name}" "${cur}" "${latest}" "${status}"
+}
+
+update_decky() {
+    local tmp_bin="${TMP_WORK}/PluginLoader"
+    local tag=""
+
+    log "Downloading latest Decky Loader PluginLoader..."
+    download_nonempty "${DECKY_PLUGIN_LOADER_URL}" "${tmp_bin}"
+    install -m 0755 "${tmp_bin}" "${HOMEBREW_DIR}/services/PluginLoader"
+
+    tag="$(resolve_decky_latest_tag)"
+    UPDATED_DECKY_VERSION="${tag}"
+    log "Updated Decky Loader (${tag})"
+}
+
+update_core_cache() {
+    local archive_path="${TMP_WORK}/${RESOLVED_CORE_FILE}"
+
+    log "Downloading HelixSR Core (${RESOLVED_CORE_VER})..."
+    download_nonempty "${RESOLVED_CORE_URL}" "${archive_path}"
+
+    rm -rf "${CORE_STAGED_TARGET}"
+    mkdir -p "${CORE_STAGED_TARGET}"
+    cp -f "${archive_path}" "${CORE_STAGED_TARGET}/${RESOLVED_CORE_FILE}"
+    printf '%s\n' "${RESOLVED_CORE_VER}" > "${CORE_STAGED_TARGET}/version.txt"
+    chmod -R u+rwX,go+rX "${HOMEBREW_DIR}/data/HelixSR-Manager"
+
+    UPDATED_CORE_VERSION="${RESOLVED_CORE_VER}"
+    log "Updated HelixSR Core staged cache (${RESOLVED_CORE_VER})"
+}
+
+update_manager_plugin() {
+    local archive_path="${TMP_WORK}/${RESOLVED_MGR_FILE}"
+
+    log "Downloading HelixSR Manager (${RESOLVED_MGR_VER} from ${RESOLVED_MGR_SOURCE})..."
+    download_nonempty "${RESOLVED_MGR_URL}" "${archive_path}"
+
+    extract_plugin_archive "${archive_path}" "${PLUGIN_TARGET}"
+    UPDATED_MGR_VERSION="${RESOLVED_MGR_VER}"
+    log "Updated HelixSR Manager plugin (${RESOLVED_MGR_VER})"
+}
+
+write_state_file() {
+    local mode="$1"
+    local unit_mode="$2"
+    local now=""
+    local installed_at=""
+    local staged_at=""
+    local state_tmp="${STATE_FILE}.tmp.$$"
+
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    installed_at="$(read_kv "${STATE_FILE}" "INSTALLED_AT")"
+    if [ -z "${installed_at}" ]; then
+        installed_at="${now}"
+    fi
+    staged_at="$(read_kv "${STATE_FILE}" "STAGED_AT")"
+    if [ -z "${staged_at}" ] && [ -f "${STAGE_DIR}/manifest.env" ]; then
+        staged_at="$(read_kv "${STAGE_DIR}/manifest.env" "STAGED_AT")"
+    fi
+
+    mkdir -p "${HOME}/.config"
+    cat > "${state_tmp}" <<EOF
+INSTALLED_AT="${installed_at}"
+UPDATED_AT="${now}"
+SETUP_MODE="${mode}"
+STAGED_AT="${staged_at}"
+DECKY_VERSION="${UPDATED_DECKY_VERSION}"
+HELIXSR_CORE_VERSION="${UPDATED_CORE_VERSION}"
+HELIXSR_MANAGER_VERSION="${UPDATED_MGR_VERSION}"
+SYSTEMD_UNIT_MODE="${unit_mode}"
+EOF
+    mv -f "${state_tmp}" "${STATE_FILE}"
+}
+
+main() {
+    local mode="full"
+
+    if [ $# -gt 1 ]; then
+        die "Specify at most one option (try --help)"
+    fi
+
+    if [ $# -eq 1 ]; then
+        case "$1" in
+            --plugin-only)
+                mode="plugin-only"
+                ;;
+            --decky-only)
+                mode="decky-only"
+                ;;
+            --reinstall-staged)
+                mode="reinstall-staged"
+                ;;
+            --check)
+                mode="check"
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "Unknown argument: $1 (try --help)"
+                ;;
+        esac
+    fi
+
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        die "Refusing to run as root (UID 0) so ~/homebrew permissions are protected."
+    fi
+
+    if [ "${mode}" = "reinstall-staged" ]; then
+        if [ ! -x "${SETUP_BIN}" ]; then
+            die "Setup helper not executable: ${SETUP_BIN}"
+        fi
+        exec "${SETUP_BIN}" --force
+    fi
+
+    if [ "${mode}" = "check" ]; then
+        run_check
+        exit 0
+    fi
+
+    require_cmd curl
+    require_cmd jq
+    require_cmd unzip
+    require_cmd tar
+
+    TMP_WORK="$(mktemp -d)"
+
+    mkdir -p \
+        "${HOMEBREW_DIR}/services" \
+        "${HOMEBREW_DIR}/plugins" \
+        "${HOMEBREW_DIR}/settings" \
+        "${HOMEBREW_DIR}/data/HelixSR-Manager/staged" \
+        "${HOMEBREW_DIR}/logs" \
+        "${HOME}/.config"
+
+    UPDATED_DECKY_VERSION="$(get_local_version decky)"
+    UPDATED_CORE_VERSION="$(get_local_version core)"
+    UPDATED_MGR_VERSION="$(get_local_version manager)"
+
+    local HELIXSR_JSON=""
+    local RESOLVED_CORE_VER="" RESOLVED_CORE_URL="" RESOLVED_CORE_FILE=""
+    local RESOLVED_MGR_VER="" RESOLVED_MGR_URL="" RESOLVED_MGR_FILE="" RESOLVED_MGR_SOURCE=""
+
+    case "${mode}" in
+        full)
+            update_decky
+            resolve_helixsr_release_info
+            resolve_manager_release_info
+            update_core_cache
+            update_manager_plugin
+            ;;
+        plugin-only)
+            HELIXSR_JSON="$(fetch_release_json "${HELIXSR_REPO}" || true)"
+            resolve_manager_release_info
+            update_manager_plugin
+            ;;
+        decky-only)
+            update_decky
+            ;;
+    esac
+
+    local unit_mode=""
+    unit_mode="$(restart_plugin_loader)"
+    write_state_file "${mode}" "${unit_mode}"
+
+    log "Update complete (${mode})."
+}
+
+main "$@"

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sol OS (BC-250 Edition) — Root launcher for Decky Loader (PluginLoader).
+# Discovers a non-root user's ~/homebrew/services/PluginLoader binary safely,
+# validates ownership and permissions, exports Decky environment variables,
+# and execs PluginLoader.
+
+log() {
+    printf '[sol-decky-launch] %s\n' "$*" >&2
+}
+
+die() {
+    printf '[sol-decky-launch] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+get_owner() {
+    local target="$1"
+    stat -c '%U' "${target}" 2>/dev/null || stat -f '%Su' "${target}"
+}
+
+get_mode_octal() {
+    local target="$1"
+    stat -c '%a' "${target}" 2>/dev/null || stat -f '%Lp' "${target}"
+}
+
+main() {
+    local candidate=""
+    local selected_bin=""
+    local selected_owner=""
+    local selected_home=""
+    local selected_has_state=0
+
+    local owner=""
+    local uid=""
+    local mode=""
+    local user_home=""
+    local has_state=0
+
+    shopt -s nullglob
+    for candidate in /home/*/homebrew/services/PluginLoader; do
+        if [ -L "${candidate}" ] || [ ! -f "${candidate}" ] || [ ! -x "${candidate}" ]; then
+            log "Skipping invalid PluginLoader candidate: ${candidate}"
+            continue
+        fi
+
+        owner="$(get_owner "${candidate}" || true)"
+        if [ -z "${owner}" ] || [ "${owner}" = "root" ] || [ "${owner}" = "UNKNOWN" ]; then
+            log "Skipping PluginLoader not owned by a regular user (${owner:-unknown}): ${candidate}"
+            continue
+        fi
+
+        uid="$(id -u "${owner}" 2>/dev/null || true)"
+        if [ -z "${uid}" ] || [ "${uid}" -lt 1000 ]; then
+            log "Skipping PluginLoader owned by system user ${owner} (uid=${uid:-none}): ${candidate}"
+            continue
+        fi
+
+        mode="$(get_mode_octal "${candidate}" || true)"
+        if [ -z "${mode}" ] || (( (8#${mode} & 022) != 0 )); then
+            log "Skipping unsafe group/world-writable PluginLoader (mode=${mode:-unknown}): ${candidate}"
+            continue
+        fi
+
+        user_home="/home/${owner}"
+        if [ "${candidate}" != "${user_home}/homebrew/services/PluginLoader" ]; then
+            log "Skipping PluginLoader outside owner's home directory (${user_home}): ${candidate}"
+            continue
+        fi
+
+        has_state=0
+        if [ -f "${user_home}/.config/sol-helixsr-installed" ]; then
+            has_state=1
+        fi
+
+        if [ -z "${selected_bin}" ] || { [ "${has_state}" -eq 1 ] && [ "${selected_has_state}" -eq 0 ]; }; then
+            selected_bin="${candidate}"
+            selected_owner="${owner}"
+            selected_home="${user_home}"
+            selected_has_state="${has_state}"
+        fi
+    done
+    shopt -u nullglob
+
+    if [ -z "${selected_bin}" ]; then
+        die "No valid /home/<user>/homebrew/services/PluginLoader binary found."
+    fi
+
+    export UNPRIVILEGED_USER="${selected_owner}"
+    export UNPRIVILEGED_PATH="${selected_home}/homebrew"
+    export PRIVILEGED_PATH="${selected_home}/homebrew"
+    export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+
+    cd "${selected_home}/homebrew/services"
+    exec "${selected_bin}"
+}
+
+main "$@"

@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+name: sol-os
+description: "Sol OS (BC-250 Edition) — Immutable SteamOS-like Linux OS for the AMD BC-250 APU (Oberon / Cyan Skillfish GFX1013) with out-of-the-box HelixSR RDNA 2 FP16 upscaling."
+base-image: ghcr.io/ublue-os/bazzite-deck
+image-version: latest
+
+stages:
+  - name: bc250-governor-builder
+    from: ghcr.io/ublue-os/bazzite-deck:latest
+    modules:
+      - type: script
+        scripts:
+          - install-bc250-governor.sh
+
+modules:
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  - type: copy
+    from: bc250-governor-builder
+    src: /out/usr/libexec/sol-os/cyan-skillfish-governor-smu
+    dest: /usr/libexec/sol-os/cyan-skillfish-governor-smu
+
+  - type: dnf
+    # Official Fedora repos are kept as default for reliable CI builds.
+    # amdgpu_top can optionally be layered via COPR if preferred over radeontop.
+    install:
+      packages:
+        - mangohud
+        - gamescope
+        - lm_sensors
+        - git
+        - curl
+        - unzip
+        - jq
+        - vulkan-tools
+        - radeontop
+
+  - type: script
+    scripts:
+      - configure-branding.sh
+      - stage-helixsr.sh
+
+  - type: systemd
+    system:
+      enabled:
+        - cyan-skillfish-governor-smu.service
+        - plugin_loader.service
+      masked:
+        - sleep.target
+        - suspend.target
+        - hibernate.target
+        - hybrid-sleep.target
+        - hhd.service
+        - hhd@.service
+    user:
+      enabled:
+        - sol-helixsr-setup.service
+
+  - type: kargs
+    arch: x86_64
+    kargs:
+      - amdgpu.ppfeaturemask=0xffffffff
+      # Optional Zen 2 performance gain at the cost of CPU side-channel mitigations.
+      # Uncomment only if you accept the reduced side-channel security trade-off:
+      # - mitigations=off
+
+  - type: signing

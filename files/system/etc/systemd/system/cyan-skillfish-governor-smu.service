@@ -1,0 +1,16 @@
+[Unit]
+Description=Sol OS AMD BC-250 (Cyan Skillfish) GPU SMU Governor
+Documentation=https://github.com/filippor/cyan-skillfish-governor
+After=local-fs.target systemd-tmpfiles-setup.service systemd-udev-settle.service
+Wants=systemd-tmpfiles-setup.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cyan-skillfish-governor-smu /etc/cyan-skillfish-governor-smu/config.toml
+Restart=on-failure
+RestartSec=5
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

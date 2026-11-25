@@ -1,0 +1,15 @@
+# Signing private key (NEVER commit to version control)
+cosign.key
+
+# Generated ISO images and checksums
+*.iso
+*.iso.sha256
+iso-output/
+
+# BlueBuild generated build artifacts
+Containerfile
+
+# OS and editor temporary files
+.DS_Store
+*.swp
+*.bak
