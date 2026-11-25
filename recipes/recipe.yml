@@ -26,11 +26,10 @@ modules:
   - type: dnf
     # Official Fedora repos are kept as default for reliable CI builds.
     # amdgpu_top can optionally be layered via COPR if preferred over radeontop.
-    # Note: bazzite-deck:latest already preinstalls patched terra-gamescope,
-    # which conflicts with stock Fedora gamescope if listed here.
+    # Note: bazzite-deck:latest already preinstalls patched terra-gamescope and
+    # terra-mangohud, which conflict with stock Fedora gamescope/mangohud RPMs.
     install:
       packages:
-        - mangohud
         - lm_sensors
         - git
         - curl
