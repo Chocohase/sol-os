@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sol OS (BC-250 Edition) — Toggle GPU SMU Governor between Gaming and Quiet Media/HTPC profiles.
+
+GOV_DIR="${GOV_DIR:-/etc/cyan-skillfish-governor-smu}"
+ACTIVE_CONF="${GOV_DIR}/config.toml"
+GAMING_CONF="${GOV_DIR}/config-gaming.toml"
+MEDIA_CONF="${GOV_DIR}/config-media.toml"
+GOV_SERVICE="cyan-skillfish-governor-smu.service"
+
+log() {
+  printf '[sol-media-mode] %s\n' "$*"
+}
+
+die() {
+  printf '[sol-media-mode] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: sol-media-mode <on|off|status>
+
+Switch the BC-250 GPU SMU governor (/etc/cyan-skillfish-governor-smu/config.toml)
+between quiet media/HTPC clocks (500-1200 MHz) and gaming defaults (1000-2000 MHz).
+
+Commands:
+  on      Enable quiet media/HTPC profile (requires root/sudo)
+  off     Restore default gaming profile (requires root/sudo)
+  status  Show currently active profile and governor service state
+  -h, --help  Show this help message and exit
+EOF
+}
+
+require_root() {
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    die "Root privileges required to switch governor profile (run with sudo)."
+  fi
+}
+
+apply_profile() {
+  local src="$1"
+  local label="$2"
+  local tmp_conf=""
+
+  require_root
+
+  if [ ! -s "${src}" ]; then
+    die "Missing governor profile file: ${src}"
+  fi
+
+  tmp_conf="${ACTIVE_CONF}.tmp.$$"
+  cp -f "${src}" "${tmp_conf}"
+  chmod 0644 "${tmp_conf}"
+  mv -f "${tmp_conf}" "${ACTIVE_CONF}"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    log "Restarting ${GOV_SERVICE}..."
+    systemctl restart "${GOV_SERVICE}"
+  fi
+
+  log "Switched GPU SMU governor to ${label} profile (${ACTIVE_CONF})."
+}
+
+show_status() {
+  local active_profile="custom"
+  local svc_state="unknown"
+
+  if [ ! -f "${ACTIVE_CONF}" ]; then
+    active_profile="missing"
+  elif [ -f "${MEDIA_CONF}" ] && cmp -s "${ACTIVE_CONF}" "${MEDIA_CONF}"; then
+    active_profile="media (quiet HTPC: 500-1200 MHz @ 800-950 mV)"
+  elif [ -f "${GAMING_CONF}" ] && cmp -s "${ACTIVE_CONF}" "${GAMING_CONF}"; then
+    active_profile="gaming (default: 1000-2000 MHz @ 950-1000 mV)"
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    svc_state="$(systemctl is-active "${GOV_SERVICE}" 2>/dev/null || true)"
+    [ -n "${svc_state}" ] || svc_state="inactive"
+  fi
+
+  printf 'Profile: %s\n' "${active_profile}"
+  printf 'Service (%s): %s\n' "${GOV_SERVICE}" "${svc_state}"
+}
+
+main() {
+  local cmd="${1:-status}"
+
+  case "${cmd}" in
+    on)
+      apply_profile "${MEDIA_CONF}" "media"
+      ;;
+    off)
+      apply_profile "${GAMING_CONF}" "gaming"
+      ;;
+    status)
+      show_status
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      usage >&2
+      die "Unknown command: ${cmd}"
+      ;;
+  esac
+}
+
+main "$@"

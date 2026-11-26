@@ -9,6 +9,7 @@ STAGE_DIR="${STAGE_DIR:-/usr/share/sol-os/helixsr}"
 HOMEBREW_DIR="${HOMEBREW_DIR:-${HOME}/homebrew}"
 STATE_FILE="${HOME}/.config/sol-helixsr-installed"
 PLUGIN_TARGET="${HOMEBREW_DIR}/plugins/HelixSR-Manager"
+CSS_LOADER_TARGET="${HOMEBREW_DIR}/plugins/SDH-CssLoader"
 CORE_STAGED_TARGET="${HOMEBREW_DIR}/data/HelixSR-Manager/staged"
 TMP_WORK=""
 
@@ -68,10 +69,14 @@ extract_plugin_archive() {
     local archive="$1"
     local dest_dir="$2"
     local extract_dir="${TMP_WORK}/extract"
-    local staging_dir="${HOMEBREW_DIR}/plugins/.HelixSR-Manager.staging.$$"
+    local plugin_slug=""
+    local staging_dir=""
     local lower_name
     local plugin_json=""
     local plugin_root=""
+
+    plugin_slug="$(basename -- "${dest_dir}")"
+    staging_dir="${HOMEBREW_DIR}/plugins/.${plugin_slug}.staging.$$"
 
     rm -rf "${extract_dir}" "${staging_dir}"
     mkdir -p "${extract_dir}" "${staging_dir}"
@@ -272,6 +277,17 @@ main() {
         extract_plugin_archive "${mgr_archive}" "${PLUGIN_TARGET}"
     fi
 
+    if [ -d "${STAGE_DIR}/css-loader" ]; then
+        local css_loader_archive=""
+        css_loader_archive="$(find_archive_in_dir "${STAGE_DIR}/css-loader" || true)"
+        if [ -n "${css_loader_archive}" ] && [ -f "${css_loader_archive}" ]; then
+            if [ ! -d "${CSS_LOADER_TARGET}" ] || [ "${force}" -eq 1 ]; then
+                log "Extracting Decky CSS Loader plugin into ${CSS_LOADER_TARGET}"
+                extract_plugin_archive "${css_loader_archive}" "${CSS_LOADER_TARGET}"
+            fi
+        fi
+    fi
+
     if [ -d "${STAGE_DIR}/helixsr-core" ]; then
         log "Syncing staged HelixSR core payload into ${CORE_STAGED_TARGET}"
         rm -rf "${CORE_STAGED_TARGET}"
@@ -288,12 +304,14 @@ main() {
     local decky_version=""
     local core_version=""
     local mgr_version=""
+    local css_loader_version=""
     local installed_at=""
 
     staged_at="$(read_kv "${manifest}" "STAGED_AT")"
     decky_version="$(read_kv "${manifest}" "DECKY_VERSION")"
     core_version="$(read_kv "${manifest}" "HELIXSR_CORE_VERSION")"
     mgr_version="$(read_kv "${manifest}" "HELIXSR_MANAGER_VERSION")"
+    css_loader_version="$(read_kv "${manifest}" "CSS_LOADER_VERSION")"
 
     if [ -z "${decky_version}" ] && [ -f "${STAGE_DIR}/decky/version.txt" ]; then
         decky_version="$(head -n 1 "${STAGE_DIR}/decky/version.txt")"
@@ -303,6 +321,9 @@ main() {
     fi
     if [ -z "${mgr_version}" ] && [ -f "${STAGE_DIR}/helixsr-manager/version.txt" ]; then
         mgr_version="$(head -n 1 "${STAGE_DIR}/helixsr-manager/version.txt")"
+    fi
+    if [ -z "${css_loader_version}" ] && [ -f "${STAGE_DIR}/css-loader/version.txt" ]; then
+        css_loader_version="$(head -n 1 "${STAGE_DIR}/css-loader/version.txt")"
     fi
 
     installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -321,6 +342,7 @@ STAGED_AT="${staged_at}"
 DECKY_VERSION="${decky_version:-unknown}"
 HELIXSR_CORE_VERSION="${core_version:-unknown}"
 HELIXSR_MANAGER_VERSION="${mgr_version:-unknown}"
+CSS_LOADER_VERSION="${css_loader_version:-unknown}"
 SYSTEMD_UNIT_MODE="${unit_mode}"
 EOF
     mv -f "${state_tmp}" "${STATE_FILE}"

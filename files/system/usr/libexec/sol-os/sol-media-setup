@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sol OS (BC-250 Edition) — First-boot per-user Plex HTPC & mpv media provisioning.
+# Installs tuned BC-250 mpv defaults (multi-threaded Zen 2 software decode +
+# RDNA 2 HDR tone-mapping) and grants Plex HTPC controller access under Flatpak.
+
+MEDIA_CONF_SRC="${MEDIA_CONF_SRC:-/usr/share/sol-os/media/mpv-bc250.conf}"
+STATE_FILE="${STATE_FILE:-${HOME}/.config/sol-media-configured}"
+
+log() {
+  printf '[sol-media-setup] %s\n' "$*" >&2
+}
+
+die() {
+  printf '[sol-media-setup] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: sol-media-setup [--force] [-h|--help]
+
+Provisions BC-250 tuned mpv configuration for Plex HTPC, Flatpak mpv, and
+native mpv, and enables Flatpak controller access for tv.plex.PlexHTPC.
+
+Options:
+  --force    Re-apply configs even if ~/.config/sol-media-configured exists.
+  -h, --help Show this help message and exit.
+EOF
+}
+
+install_atomic_file() {
+  local src="$1"
+  local dst="$2"
+  local dst_dir=""
+  local tmp_dst=""
+
+  dst_dir="$(dirname "${dst}")"
+  mkdir -p "${dst_dir}"
+  tmp_dst="${dst}.tmp.$$"
+  cp -f "${src}" "${tmp_dst}"
+  chmod 0644 "${tmp_dst}"
+  mv -f "${tmp_dst}" "${dst}"
+}
+
+configure_plex_flatpak() {
+  if ! command -v flatpak >/dev/null 2>&1; then
+    log "flatpak not found; skipping tv.plex.PlexHTPC device override."
+    return 0
+  fi
+
+  if flatpak override --user --device=all tv.plex.PlexHTPC >/dev/null 2>&1; then
+    log "Granted --device=all Flatpak user override for tv.plex.PlexHTPC (gamepad support)."
+  else
+    log "WARNING: Unable to set Flatpak user override for tv.plex.PlexHTPC (non-fatal)."
+  fi
+}
+
+main() {
+  local force=0
+  local mode="first-boot"
+  local target=""
+  local configured_at=""
+  local state_dir=""
+  local state_tmp=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force)
+        force=1
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown argument: $1 (try --help)"
+        ;;
+    esac
+    shift
+  done
+
+  if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+    die "Refusing to run as root (UID 0) so user media configs are never owned by root."
+  fi
+
+  if [ -e "${STATE_FILE}" ] && [ "${force}" -eq 0 ]; then
+    log "Already configured (${STATE_FILE} exists); exiting cleanly."
+    exit 0
+  fi
+
+  if [ ! -s "${MEDIA_CONF_SRC}" ]; then
+    die "Missing source BC-250 mpv configuration: ${MEDIA_CONF_SRC}"
+  fi
+
+  if [ "${force}" -eq 1 ]; then
+    mode="force"
+  fi
+
+  for target in \
+    "${HOME}/.var/app/tv.plex.PlexHTPC/data/plex/mpv.conf" \
+    "${HOME}/.var/app/io.mpv.Mpv/config/mpv/mpv.conf" \
+    "${HOME}/.config/mpv/mpv.conf"
+  do
+    log "Installing BC-250 mpv configuration -> ${target}"
+    install_atomic_file "${MEDIA_CONF_SRC}" "${target}"
+  done
+
+  configure_plex_flatpak
+
+  state_dir="$(dirname "${STATE_FILE}")"
+  mkdir -p "${state_dir}"
+  configured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_tmp="${STATE_FILE}.tmp.$$"
+
+  cat > "${state_tmp}" <<EOF
+CONFIGURED_AT="${configured_at}"
+MODE="${mode}"
+SOURCE_CONF="${MEDIA_CONF_SRC}"
+EOF
+  chmod 0644 "${state_tmp}"
+  mv -f "${state_tmp}" "${STATE_FILE}"
+
+  log "Media configuration complete (${STATE_FILE})."
+}
+
+main "$@"

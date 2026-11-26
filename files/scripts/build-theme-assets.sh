@@ -657,7 +657,16 @@ def main():
     logo_256.save(os.path.join(icon_256_dir, "sol-os-logo.png"), format="PNG", optimize=True)
     logo_256.save(os.path.join(pixmaps_dir, "sol-os-logo.png"), format="PNG", optimize=True)
 
-    # 5) 1920x1080 30fps 4.0s (120 frames) VP9 Steam/Gamescope startup video
+    # 5) CSS Loader Solar Eclipse 1920x1080 JPEG backdrop
+    css_dir = os.path.join(out_prefix, "usr/share/sol-os/theme/css-loader/Sol-Eclipse")
+    os.makedirs(css_dir, exist_ok=True)
+    if wallpaper_path and os.path.isfile(wallpaper_path):
+        backdrop_rgb = Image.open(wallpaper_path).convert("RGB").resize((1920, 1080), LANCZOS)
+    else:
+        backdrop_rgb = build_procedural_eclipse_wallpaper(width=1920, height=1080)
+    backdrop_rgb.save(os.path.join(css_dir, "backdrop.jpg"), format="JPEG", quality=88, optimize=True)
+
+    # 6) 1920x1080 30fps 4.0s (120 frames) VP9 Steam/Gamescope startup video
     theme_dir = os.path.join(out_prefix, "usr/share/sol-os/theme")
     os.makedirs(theme_dir, exist_ok=True)
     webm_path = os.path.join(theme_dir, "sol_startup.webm")
@@ -751,6 +760,7 @@ verify_outputs() {
     "${OUT_PREFIX}/usr/share/pixmaps/sol-os-logo.png" \
     "${OUT_PREFIX}/usr/share/icons/hicolor/256x256/apps/sol-os-logo.png" \
     "${OUT_PREFIX}/usr/share/icons/hicolor/512x512/apps/sol-os-logo.png" \
+    "${OUT_PREFIX}/usr/share/sol-os/theme/css-loader/Sol-Eclipse/backdrop.jpg" \
     "${OUT_PREFIX}/usr/share/sol-os/theme/sol_startup.webm"
   do
     if [ ! -s "${f}" ]; then

@@ -285,7 +285,7 @@ If an overly aggressive frequency/voltage configuration triggers an immediate GP
 Sol OS bakes the **Sol Eclipse** obsidian-and-gold visual theme directly into the OS image across early boot, Steam Game Mode, and KDE Plasma Desktop Mode:
 
 - **Early Boot Splash (Plymouth):** `sol-eclipse` two-step theme (`/usr/share/plymouth/themes/sol-eclipse/`) baked into `initramfs` with centered solar eclipse, `SOL startup` typography, and golden ring spinner.
-- **Steam Game Mode Startup & CSS Loader:** `sol_startup.webm` (1080p VP9 startup animation provisioned to `~/.local/share/Steam/config/uioverrides/movies/deck_startup.webm`) and the `Sol-Eclipse` CSS Loader theme staged into `~/homebrew/themes/Sol-Eclipse/` (enable **Sol Eclipse** inside Decky's **CSS Loader** plugin if installed).
+- **Steam Game Mode Startup & CSS Loader:** `sol_startup.webm` (1080p VP9 startup animation provisioned to `~/.local/share/Steam/config/uioverrides/movies/deck_startup.webm`), `SDH-CssLoader` pre-installed into `~/homebrew/plugins/SDH-CssLoader/`, and the **Sol Eclipse v2.0** CSS Loader theme (`backdrop.jpg`, frosted header, glowing amber focus cards, pill Play button, and glass QAM cards) staged into `~/homebrew/themes/Sol-Eclipse/` — toggle **Sol Eclipse** on inside **Quick Access (`...`) → Decky → CSS Loader**.
 - **KDE Plasma 6 Global Theme (`org.sol-os.eclipse`):** Solar Eclipse 2560×1440 wallpaper (`/usr/share/wallpapers/SolEclipse/`), `SolEclipse.colors` obsidian/gold palette, `SolEclipse` plasma style, QML login splash (`Splash.qml`), and desktop layout featuring a slim top bar (`Sol OS` launcher, system tray, clock), floating bottom dock, and desktop system/media widgets.
 - **Re-apply or Reset Theme (`sol-theme-apply`):**
   ```bash
@@ -293,3 +293,27 @@ Sol OS bakes the **Sol Eclipse** obsidian-and-gold visual theme directly into th
   sol-theme-apply --force         # Re-apply even if ~/.config/sol-theme-applied exists
   sol-theme-apply --reset-layout  # Re-apply Plasma Global Theme and reset panels/dock/widgets to Sol Eclipse defaults
   ```
+
+---
+
+## 9. Media Playback & Plex HTPC on the BC-250
+
+Because the AMD BC-250 APU ("Cyan Skillfish") has its fixed-function **VCN hardware video decode/encode engine permanently eFused off in silicon**, Sol OS is preconfigured for smooth **4K Direct Play** playback using multi-threaded Zen 2 AVX2 CPU decoding paired with RDNA 2 GPU color/HDR tone-mapping and uninterrupted HDMI audio:
+
+- **Preinstalled Media Apps (`default-flatpaks`, Flathub system scope):**
+  - **Plex HTPC** (`tv.plex.PlexHTPC`) — controller-ready 10-foot interface (auto-granted `--device=all` by `sol-media-setup.service` so gamepads work inside Game Mode).
+  - **mpv** (`io.mpv.Mpv`) — lightweight media player sharing the tuned BC-250 configuration.
+- **Tuned `mpv` Profile (`/usr/share/sol-os/media/mpv-bc250.conf`):**
+  - Automatically provisioned by `sol-media-setup.service` (or manually via `sol-media-setup --force`) to `~/.var/app/tv.plex.PlexHTPC/data/plex/mpv.conf`, `~/.var/app/io.mpv.Mpv/config/mpv/mpv.conf`, and `~/.config/mpv/mpv.conf`.
+  - Uses `hwdec=no`, `vd-lavc-threads=0`, `vd-lavc-dr=yes` (avoids failed VA-API probing), `video-sync=display-resample`, a 256 MiB network demuxer buffer, and `tone-mapping=bt.2446a` for RDNA 2 GPU HDR-to-SDR tone-mapping (without overriding `vo=` so Plex HTPC's Qt OpenGL renderer stays intact).
+- **DisplayPort-to-HDMI Audio Keepalive:**
+  - `/etc/wireplumber/wireplumber.conf.d/51-sol-disable-audio-suspend.conf` sets `session.suspend-timeout-seconds = 0` on ALSA outputs so TV/AVR HDMI audio never drops for 1–2 seconds on pause/resume.
+- **Quiet HTPC GPU Profile (`sol-media-mode`):**
+  - Switch between quiet HTPC GPU clocks (`500–1200 MHz` @ `800–950 mV`, keeping above the BC-250 `700 mV` floor) and default gaming clocks (`1000–2000 MHz` @ `950–1000 mV`):
+    ```bash
+    sudo sol-media-mode on      # Enable quiet HTPC/Plex governor profile (500–1200 MHz)
+    sudo sol-media-mode off     # Restore gaming governor defaults (1000–2000 MHz)
+    sol-media-mode status       # Show active profile and governor service state
+    ```
+
+> **Note on Plex Server vs. Direct Play:** As a **Plex HTPC client**, **Direct Play** 4K streams play smoothly on the BC-250. Avoid using the BC-250 as a Plex Media Server for real-time 4K HDR-to-SDR **server transcoding**, as the lack of VCN requires full CPU software transcoding.

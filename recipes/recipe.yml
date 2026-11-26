@@ -46,6 +46,11 @@ modules:
 
   - type: copy
     from: sol-theme-builder
+    src: /out/usr/share/sol-os/theme/css-loader/Sol-Eclipse/backdrop.jpg
+    dest: /usr/share/sol-os/theme/css-loader/Sol-Eclipse/backdrop.jpg
+
+  - type: copy
+    from: sol-theme-builder
     src: /out/usr/share/plasma/look-and-feel/org.sol-os.eclipse/contents/splash/images/eclipse.png
     dest: /usr/share/plasma/look-and-feel/org.sol-os.eclipse/contents/splash/images/eclipse.png
 
@@ -79,6 +84,18 @@ modules:
         - vulkan-tools
         - radeontop
 
+  - type: default-flatpaks
+    configurations:
+      - scope: system
+        notify: false
+        repo:
+          name: flathub
+          title: Flathub
+          url: https://dl.flathub.org/repo/flathub.flatpakrepo
+        install:
+          - tv.plex.PlexHTPC
+          - io.mpv.Mpv
+
   - type: script
     scripts:
       - configure-branding.sh
@@ -101,6 +118,7 @@ modules:
       enabled:
         - sol-helixsr-setup.service
         - sol-theme-setup.service
+        - sol-media-setup.service
 
   - type: kargs
     arch: x86_64

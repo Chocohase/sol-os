@@ -1,0 +1,42 @@
+# Sol OS (BC-250 Edition) — Quiet HTPC / Media Playback GPU SMU Governor Profile
+#
+# Reduces idle and light-playback GPU power/heat for Plex HTPC and video playback
+# while remaining safely above the BC-250 700 mV stability floor:
+#   - Lowers floor to 500 MHz @ 800 mV and caps ceiling at 1200 MHz @ 950 mV.
+#   - Activate with: sudo sol-media-mode on
+#   - Restore gaming defaults with: sudo sol-media-mode off
+
+[timing.intervals]
+sample = 500
+adjust = 200_000
+
+[timing.ramp-rates]
+normal = 1
+burst = 50
+
+[timing]
+burst-samples = 60
+down-events = 5
+
+[frequency-thresholds]
+adjust = 10
+
+[load-target]
+upper = 0.80
+lower = 0.65
+
+[temperature]
+throttling = 85
+throttling_recovery = 80
+
+[[safe-points]]
+frequency = 500
+voltage = 800
+
+[[safe-points]]
+frequency = 900
+voltage = 875
+
+[[safe-points]]
+frequency = 1200
+voltage = 950

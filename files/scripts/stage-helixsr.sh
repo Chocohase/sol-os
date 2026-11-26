@@ -16,6 +16,8 @@ HELIXSR_REPO="lonewolf0622/HelixSR"
 HELIXSR_MAIN_TARBALL="https://github.com/lonewolf0622/HelixSR/archive/refs/heads/main.tar.gz"
 MANAGER_REPO="PeroTuncay/DeckyHelixSRManager"
 MANAGER_MAIN_TARBALL="https://github.com/PeroTuncay/DeckyHelixSRManager/archive/refs/heads/main.tar.gz"
+CSS_LOADER_REPO="DeckThemes/SDH-CssLoader"
+CSS_LOADER_DIRECT_URL="https://github.com/DeckThemes/SDH-CssLoader/releases/latest/download/SDH-CSSLoader-Decky.zip"
 
 log() {
     printf '[stage-helixsr] %s\n' "$*" >&2
@@ -114,8 +116,8 @@ main() {
 
     log "Staging HelixSR & Decky Loader components into ${STAGE_DIR}"
 
-    rm -rf "${STAGE_DIR}/decky" "${STAGE_DIR}/helixsr-core" "${STAGE_DIR}/helixsr-manager"
-    mkdir -p "${STAGE_DIR}/decky" "${STAGE_DIR}/helixsr-core" "${STAGE_DIR}/helixsr-manager"
+    rm -rf "${STAGE_DIR}/decky" "${STAGE_DIR}/helixsr-core" "${STAGE_DIR}/helixsr-manager" "${STAGE_DIR}/css-loader"
+    mkdir -p "${STAGE_DIR}/decky" "${STAGE_DIR}/helixsr-core" "${STAGE_DIR}/helixsr-manager" "${STAGE_DIR}/css-loader"
 
     # 1. Stage Decky Loader
     log "Downloading Decky Loader PluginLoader..."
@@ -249,6 +251,33 @@ main() {
     download_nonempty "${mgr_url}" "${STAGE_DIR}/helixsr-manager/${mgr_filename}"
     printf '%s\n' "${mgr_version}" > "${STAGE_DIR}/helixsr-manager/version.txt"
 
+    # 3b. Stage Decky CSS Loader (DeckThemes/SDH-CssLoader)
+    local css_loader_version="latest"
+    local css_loader_url="${CSS_LOADER_DIRECT_URL}"
+    local css_loader_filename="SDH-CSSLoader-Decky.zip"
+    local css_loader_json=""
+
+    if css_loader_json="$(fetch_release_json "${CSS_LOADER_REPO}")"; then
+        local css_loader_asset=""
+        css_loader_version="$(printf '%s' "${css_loader_json}" | jq -r '.tag_name // "latest"')"
+        css_loader_asset="$(printf '%s' "${css_loader_json}" | jq -c '
+            [.assets[]? | select(((.name // "") | ascii_downcase) as $n |
+                ($n | endswith(".zip") or endswith(".tar.gz") or endswith(".tgz")) and
+                ($n | contains("decky") or contains("cssloader"))
+            )][0] // empty
+        ')"
+        if [ -n "${css_loader_asset}" ]; then
+            css_loader_url="$(printf '%s' "${css_loader_asset}" | jq -r '.browser_download_url // empty')"
+            css_loader_filename="$(sanitize_filename "$(printf '%s' "${css_loader_asset}" | jq -r '.name // empty')")"
+        fi
+    else
+        log "Warning: unable to query ${CSS_LOADER_REPO} release via API; falling back to direct zip URL"
+    fi
+
+    log "Downloading Decky CSS Loader (${css_loader_version}) from ${css_loader_url}..."
+    download_nonempty "${css_loader_url}" "${STAGE_DIR}/css-loader/${css_loader_filename}"
+    printf '%s\n' "${css_loader_version}" > "${STAGE_DIR}/css-loader/version.txt"
+
     # 4. Write manifest and normalize permissions
     local staged_at
     staged_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -266,6 +295,10 @@ HELIXSR_MANAGER_VERSION="${mgr_version}"
 HELIXSR_MANAGER_URL="${mgr_url}"
 HELIXSR_MANAGER_FILE="${mgr_filename}"
 HELIXSR_MANAGER_SOURCE="${mgr_source}"
+CSS_LOADER_VERSION="${css_loader_version}"
+CSS_LOADER_URL="${css_loader_url}"
+CSS_LOADER_FILE="${css_loader_filename}"
+CSS_LOADER_SOURCE="${CSS_LOADER_REPO}"
 EOF
 
     chmod -R a+rX "${STAGE_DIR}"

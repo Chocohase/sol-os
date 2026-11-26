@@ -1,0 +1,12 @@
+[Unit]
+Description=Sol OS First-Boot Plex HTPC & BC-250 Media Playback Setup
+After=basic.target
+ConditionPathExists=!%h/.config/sol-media-configured
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sol-os/sol-media-setup
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target
