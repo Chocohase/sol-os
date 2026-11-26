@@ -93,6 +93,7 @@ jobs:
           OWNER_LC="$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
           mkdir -p iso-output
           sudo "$(command -v bluebuild)" generate-iso \
+            --variant server \
             --output-dir ./iso-output \
             --iso-name sol-os.iso \
             image "ghcr.io/${OWNER_LC}/sol-os:${IMAGE_TAG}"

@@ -104,12 +104,14 @@ You can also invoke `bluebuild generate-iso` directly against either the local r
 ```bash
 # From local recipe:
 mkdir -p ./iso-output
-sudo bluebuild generate-iso --output-dir ./iso-output --iso-name sol-os.iso recipe recipes/recipe.yml
+sudo bluebuild generate-iso --variant server --output-dir ./iso-output --iso-name sol-os.iso recipe recipes/recipe.yml
 
 # From published GHCR image:
 mkdir -p ./iso-output
-sudo bluebuild generate-iso --output-dir ./iso-output --iso-name sol-os.iso image ghcr.io/<your-github-user>/sol-os:latest
+sudo bluebuild generate-iso --variant server --output-dir ./iso-output --iso-name sol-os.iso image ghcr.io/<your-github-user>/sol-os:latest
 ```
+
+> **Installer Note:** During installation from `sol-os.iso`, be sure to complete **User Creation** (with **"Make this user administrator"** checked) in Anaconda so `bazzite-autologin` boots straight into Steam Game Mode on first boot.
 
 ### Flashing to a USB Drive
 

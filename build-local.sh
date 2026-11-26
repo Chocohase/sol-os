@@ -27,7 +27,7 @@ Options:
                     if installed) and check shell scripts with 'bash -n' (and
                     'shellcheck' if installed), then exit 0 without building.
   --iso             After building the OCI image locally, run:
-                      sudo bluebuild generate-iso --output-dir ./iso-output \
+                      sudo bluebuild generate-iso --variant server --output-dir ./iso-output \
                         --iso-name sol-os.iso recipe recipes/recipe.yml
   --tag <tag>       Custom local OCI image tag (default: latest).
   -h, --help        Show this help message and exit.
@@ -248,11 +248,11 @@ ISO Generation Commands (USB-flashable sol-os.iso)
 
 1. From this local BlueBuild recipe (writes ./iso-output/sol-os.iso):
    mkdir -p ./iso-output
-   sudo bluebuild generate-iso --output-dir ./iso-output --iso-name sol-os.iso recipe recipes/recipe.yml
+   sudo bluebuild generate-iso --variant server --output-dir ./iso-output --iso-name sol-os.iso recipe recipes/recipe.yml
 
 2. From a published GHCR image (writes ./iso-output/sol-os.iso):
    mkdir -p ./iso-output
-   sudo bluebuild generate-iso --output-dir ./iso-output --iso-name sol-os.iso image ghcr.io/<github-user>/sol-os:${IMAGE_TAG}
+   sudo bluebuild generate-iso --variant server --output-dir ./iso-output --iso-name sol-os.iso image ghcr.io/<github-user>/sol-os:${IMAGE_TAG}
 
 3. Verify checksum and flash to USB (replace /dev/sdX with your USB block device):
    (cd iso-output && sha256sum sol-os.iso > sol-os.iso.sha256)
@@ -290,6 +290,7 @@ generate_local_iso() {
   mkdir -p "${ISO_OUTPUT_DIR}"
   log_info "Generating bootable ${ISO_NAME} in ${ISO_OUTPUT_DIR}..."
   sudo "${bluebuild_bin}" generate-iso \
+    --variant server \
     --output-dir ./iso-output \
     --iso-name "${ISO_NAME}" \
     recipe "${RECIPE_REL}"
