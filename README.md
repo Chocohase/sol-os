@@ -111,7 +111,10 @@ mkdir -p ./iso-output
 sudo bluebuild generate-iso --variant server --output-dir ./iso-output --iso-name sol-os.iso image ghcr.io/<your-github-user>/sol-os:latest
 ```
 
-> **Installer Note:** During installation from `sol-os.iso`, be sure to complete **User Creation** (with **"Make this user administrator"** checked) in Anaconda so `bazzite-autologin` boots straight into Steam Game Mode on first boot.
+> **Installer & Zero-Terminal First Boot Note:**
+> - During installation from `sol-os.iso`, complete **User Creation** (with **"Make this user administrator"** checked) in Anaconda so `bazzite-autologin` boots straight into Steam Game Mode on first boot.
+> - On first boot, `sol-grow-root.service` automatically expands Fedora Server's 15 GiB LVM root volume to fill the entire SSD before Steam starts.
+> - Both **Sol Eclipse v2.0** (in Steam Game Mode via pre-enabled `SDH-CssLoader` config and in KDE Plasma via `sol-kde-theme-init.desktop`) and **HelixSR Manager** (with staged release files in `~/HelixSR/<version>/`) are provisioned automatically without terminal edits.
 
 ### Flashing to a USB Drive
 

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Sol OS KDE Theme Initialization
+Exec=/usr/libexec/sol-os/sol-theme-apply --kde-first-boot
+OnlyShowIn=KDE;
+NoDisplay=true
+X-KDE-autostart-phase=2

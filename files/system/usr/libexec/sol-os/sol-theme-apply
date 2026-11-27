@@ -8,8 +8,10 @@ set -euo pipefail
 THEME_SHARE_DIR="${THEME_SHARE_DIR:-/usr/share/sol-os/theme}"
 STARTUP_WEBM_SRC="${THEME_SHARE_DIR}/sol_startup.webm"
 CSS_THEME_SRC="${THEME_SHARE_DIR}/css-loader/Sol-Eclipse"
+WALLPAPER_IMG="${WALLPAPER_IMG:-/usr/share/wallpapers/SolEclipse/contents/images/2560x1440.png}"
 HOMEBREW_DIR="${HOMEBREW_DIR:-${HOME}/homebrew}"
 STATE_FILE="${STATE_FILE:-${HOME}/.config/sol-theme-applied}"
+KDE_STATE_FILE="${KDE_STATE_FILE:-${HOME}/.config/sol-kde-theme-applied}"
 
 log() {
   printf '[sol-theme-apply] %s\n' "$*" >&2
@@ -22,7 +24,7 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: sol-theme-apply [--force] [--reset-layout] [-h|--help]
+Usage: sol-theme-apply [--force] [--reset-layout] [--kde-first-boot] [-h|--help]
 
 Provisions the Sol Eclipse theme assets for the current user:
   - Copies sol_startup.webm to Steam Big Picture startup movie overrides
@@ -30,10 +32,12 @@ Provisions the Sol Eclipse theme assets for the current user:
   - Applies KDE Plasma 6 Sol Eclipse defaults (and live look-and-feel if in KDE)
 
 Options:
-  --force         Re-apply theme assets even if ~/.config/sol-theme-applied exists.
-  --reset-layout  Re-apply theme assets and pass --resetLayout when applying the
-                  KDE Plasma LookAndFeel package inside a live KDE session.
-  -h, --help      Show this help text.
+  --force           Re-apply theme assets even if ~/.config/sol-theme-applied exists.
+  --reset-layout    Re-apply theme assets and pass --resetLayout when applying the
+                    KDE Plasma LookAndFeel package inside a live KDE session.
+  --kde-first-boot  Apply KDE LookAndFeel layout and wallpaper once on first KDE
+                    Desktop login (~/.config/sol-kde-theme-applied).
+  -h, --help        Show this help text.
 EOF
 }
 
@@ -154,12 +158,35 @@ apply_kde_defaults() {
         plasma-apply-lookandfeel -a org.sol-os.eclipse \
           || log "WARNING: plasma-apply-lookandfeel exited non-zero (session may not be ready)."
       fi
+      if command -v plasma-apply-wallpaperimage >/dev/null 2>&1 && [ -f "${WALLPAPER_IMG}" ]; then
+        log "Applying Sol Eclipse KDE wallpaper -> ${WALLPAPER_IMG}"
+        plasma-apply-wallpaperimage "${WALLPAPER_IMG}" \
+          || log "WARNING: plasma-apply-wallpaperimage exited non-zero (session may not be ready)."
+      fi
     else
       log "Non-KDE graphical session (${XDG_CURRENT_DESKTOP:-unknown}); skipping live plasma-apply-lookandfeel."
     fi
   fi
 
   [ "${applied}" -eq 1 ] && return 0 || return 1
+}
+
+write_kde_state_file() {
+  local state_dir=""
+  local state_tmp=""
+  local applied_at=""
+
+  state_dir="$(dirname "${KDE_STATE_FILE}")"
+  mkdir -p "${state_dir}"
+  applied_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_tmp="${KDE_STATE_FILE}.tmp.$$"
+
+  cat > "${state_tmp}" <<EOF
+APPLIED_AT="${applied_at}"
+WALLPAPER="${WALLPAPER_IMG}"
+EOF
+  chmod 0644 "${state_tmp}"
+  mv -f "${state_tmp}" "${KDE_STATE_FILE}"
 }
 
 write_state_file() {
@@ -192,6 +219,7 @@ EOF
 main() {
   local force=0
   local reset_layout=0
+  local kde_first_boot=0
   local mode="first-boot"
   local steam_ok="0"
   local css_ok="0"
@@ -204,6 +232,9 @@ main() {
         ;;
       --reset-layout)
         reset_layout=1
+        ;;
+      --kde-first-boot)
+        kde_first_boot=1
         ;;
       -h|--help)
         usage
@@ -218,6 +249,19 @@ main() {
 
   if [ "${EUID:-$(id -u)}" -eq 0 ]; then
     die "Refusing to run as root (UID 0) so user Steam, Decky, and KDE configs are never owned by root."
+  fi
+
+  if [ "${kde_first_boot}" -eq 1 ]; then
+    if [ -e "${KDE_STATE_FILE}" ] && [ "${force}" -eq 0 ]; then
+      exit 0
+    fi
+    if ! { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } || ! is_kde_desktop_session; then
+      exit 0
+    fi
+    apply_kde_defaults 1 || true
+    write_kde_state_file
+    log "KDE first-boot theme applied (${KDE_STATE_FILE})."
+    exit 0
   fi
 
   if [ -e "${STATE_FILE}" ] && [ "${force}" -eq 0 ] && [ "${reset_layout}" -eq 0 ]; then

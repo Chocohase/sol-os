@@ -1,7 +1,7 @@
 [Unit]
 Description=Sol OS First-Boot Decky Loader & HelixSR Manager Provisioning
 Documentation=file:///usr/share/sol-os/README-RDNA2-HELIXSR.txt
-After=basic.target
+After=basic.target sol-theme-setup.service
 ConditionPathExists=!%h/.config/sol-helixsr-installed
 
 [Service]

@@ -1,0 +1,12 @@
+[Unit]
+Description=Sol OS Expand LVM Root Volume to Fill Disk
+After=local-fs.target
+Before=display-manager.service bazzite-autologin.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sol-os/sol-grow-root
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

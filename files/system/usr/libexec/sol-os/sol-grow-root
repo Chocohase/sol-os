@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sol OS (BC-250 Edition) — First-boot LVM root volume auto-expansion.
+# Fedora Server's automatic Anaconda partitioning creates a ~15 GiB LVM root
+# logical volume while leaving the rest of the SSD as free VG space.
+# This expands /sysroot cleanly to +100%FREE before Steam/Gamescope starts.
+# Always exits 0 so boot is never blocked on non-LVM or already-expanded disks.
+
+log() {
+  printf '[sol-grow-root] %s\n' "$*" >&2
+}
+
+main() {
+  local cmd=""
+  for cmd in findmnt lvs vgs lvextend; do
+    if ! command -v "${cmd}" >/dev/null 2>&1; then
+      log "${cmd} not found; skipping root expansion."
+      exit 0
+    fi
+  done
+
+  local mount_target="/sysroot"
+  if ! findmnt -n -o SOURCE "${mount_target}" >/dev/null 2>&1; then
+    mount_target="/"
+  fi
+
+  local raw_dev=""
+  raw_dev="$(findmnt -n -o SOURCE "${mount_target}" 2>/dev/null | awk 'NR == 1 { print; exit }' || true)"
+  if [ -z "${raw_dev}" ]; then
+    log "Unable to resolve block source for ${mount_target}; skipping."
+    exit 0
+  fi
+
+  # Strip OSTree/Btrfs subvolume brackets e.g. /dev/mapper/fedora-root[/ostree/...]
+  local dev="${raw_dev%%\[*}"
+  if [ ! -b "${dev}" ]; then
+    log "Source ${dev} is not a block device; skipping."
+    exit 0
+  fi
+
+  local vg=""
+  vg="$(lvs --noheadings -o vg_name "${dev}" 2>/dev/null | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit }' || true)"
+  if [ -z "${vg}" ]; then
+    log "${dev} is not an LVM logical volume; nothing to expand."
+    exit 0
+  fi
+
+  local free_mib_raw=""
+  free_mib_raw="$(vgs --noheadings --units m --nosuffix -o vg_free "${vg}" 2>/dev/null | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit }' || true)"
+  local free_mib="${free_mib_raw%%[.,]*}"
+  case "${free_mib}" in
+    ''|*[!0-9]*)
+      free_mib=0
+      ;;
+  esac
+
+  if [ "${free_mib}" -lt 1024 ]; then
+    log "VG '${vg}' has ${free_mib} MiB free (< 1024 MiB threshold); nothing to expand."
+    exit 0
+  fi
+
+  log "Expanding LVM root volume ${dev} in VG '${vg}' (${free_mib} MiB free)..."
+  if lvextend -r -l +100%FREE "${dev}"; then
+    log "Expansion complete:"
+    df -h "${mount_target}" || true
+  else
+    log "WARNING: lvextend returned non-zero (non-fatal)."
+  fi
+
+  exit 0
+}
+
+main "$@"

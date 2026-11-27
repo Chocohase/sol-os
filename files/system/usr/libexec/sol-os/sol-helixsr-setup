@@ -78,7 +78,14 @@ extract_plugin_archive() {
     plugin_slug="$(basename -- "${dest_dir}")"
     staging_dir="${HOMEBREW_DIR}/plugins/.${plugin_slug}.staging.$$"
 
-    rm -rf "${extract_dir}" "${staging_dir}"
+    if [ ! -d "$(dirname -- "${dest_dir}")" ]; then
+        mkdir -p "$(dirname -- "${dest_dir}")"
+    fi
+    if [ ! -w "$(dirname -- "${dest_dir}")" ]; then
+        die "Plugin directory is not writable: $(dirname -- "${dest_dir}") (run: sudo systemctl stop plugin_loader.service && sudo chown -R \$USER:\$USER ~/homebrew && sudo chmod -R u+rwX ~/homebrew)"
+    fi
+
+    rm -rf "${extract_dir}"
     mkdir -p "${extract_dir}" "${staging_dir}"
 
     lower_name="$(printf '%s' "${archive}" | tr '[:upper:]' '[:lower:]')"
@@ -296,9 +303,6 @@ main() {
         chmod -R u+rwX,go+rX "${HOMEBREW_DIR}/data/HelixSR-Manager"
     fi
 
-    local unit_mode=""
-    unit_mode="$(configure_and_start_service)"
-
     local manifest="${STAGE_DIR}/manifest.env"
     local staged_at=""
     local decky_version=""
@@ -325,6 +329,57 @@ main() {
     if [ -z "${css_loader_version}" ] && [ -f "${STAGE_DIR}/css-loader/version.txt" ]; then
         css_loader_version="$(head -n 1 "${STAGE_DIR}/css-loader/version.txt")"
     fi
+
+    if [ -d "${STAGE_DIR}/helixsr-core" ] && [ -n "${core_version}" ] && [ "${core_version}" != "unknown" ]; then
+        local core_archive=""
+        core_archive="$(find_archive_in_dir "${STAGE_DIR}/helixsr-core" || true)"
+        local core_user_dir="${HOME}/HelixSR/${core_version}"
+        if [ -n "${core_archive}" ] && [ -f "${core_archive}" ]; then
+            if [ ! -d "${core_user_dir}" ] || [ "${force}" -eq 1 ]; then
+                log "Pre-extracting HelixSR core (${core_version}) into ${core_user_dir}"
+                local core_extract="${TMP_WORK}/core-extract"
+                local core_staging="${HOME}/HelixSR/.staging.${core_version}.$$"
+                rm -rf "${core_extract}" "${core_staging}"
+                mkdir -p "${HOME}/HelixSR" "${core_extract}" "${core_staging}"
+                local core_lower=""
+                core_lower="$(printf '%s' "${core_archive}" | tr '[:upper:]' '[:lower:]')"
+                local extract_ok=0
+                case "${core_lower}" in
+                    *.zip)
+                        if unzip -q "${core_archive}" -d "${core_extract}"; then
+                            extract_ok=1
+                        fi
+                        ;;
+                    *.tar.gz|*.tgz)
+                        if tar -xzf "${core_archive}" -C "${core_extract}"; then
+                            extract_ok=1
+                        fi
+                        ;;
+                esac
+                if [ "${extract_ok}" -eq 1 ]; then
+                    local setup_sh=""
+                    setup_sh="$(find "${core_extract}" -maxdepth 3 -type f -name 'helixsr-setup.sh' 2>/dev/null | awk 'NR == 1 { print; exit }')"
+                    local src_root="${core_extract}"
+                    if [ -n "${setup_sh}" ] && [ -f "${setup_sh}" ]; then
+                        src_root="$(dirname -- "${setup_sh}")"
+                    fi
+                    cp -R "${src_root}/." "${core_staging}/"
+                    chmod -R u+rwX,go+rX "${core_staging}"
+                    if [ -f "${core_staging}/helixsr-setup.sh" ]; then
+                        chmod +x "${core_staging}/helixsr-setup.sh" || true
+                    fi
+                    rm -rf "${core_user_dir}"
+                    mv "${core_staging}" "${core_user_dir}"
+                else
+                    log "Warning: unable to pre-extract ${core_archive} (non-fatal)"
+                    rm -rf "${core_staging}"
+                fi
+            fi
+        fi
+    fi
+
+    local unit_mode=""
+    unit_mode="$(configure_and_start_service)"
 
     installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
