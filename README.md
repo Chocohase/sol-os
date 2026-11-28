@@ -17,7 +17,7 @@ Built declaratively with [BlueBuild](https://blue-build.org/) on top of `ghcr.io
 | **Sleep / Daemon Fixes** | Masks `sleep.target`, `suspend.target`, `hibernate.target`, `hybrid-sleep.target` (with `/etc/systemd/sleep.conf.d/99-sol-disable-sleep.conf`) and masks `hhd.service` + `hhd@.service` (handheld daemon not applicable to BC-250 boards) |
 | **HelixSR Upscaling** | User service `sol-helixsr-setup.service` + system `/usr/lib/systemd/system/plugin_loader.service` (`sol-decky-launch`) + Decky **HelixSR Manager** + `helixsr-update` CLI (`/usr/libexec/sol-os/helixsr-update`, linked at `/usr/local/bin/helixsr-update`) |
 | **Sol Eclipse Theme** | `sol-eclipse` Plymouth boot splash (`initramfs`), `sol_startup.webm` Steam Game Mode startup movie, `Sol-Eclipse` CSS Loader theme, and KDE Plasma 6 Global Theme (`org.sol-os.eclipse`) via `sol-theme-setup.service` / `sol-theme-apply` |
-| **Included Utilities** | `mangohud` (`terra-mangohud`), `gamescope` (`terra-gamescope`), `lm_sensors`, `radeontop`, `vulkan-tools`, `jq`, `git`, `curl`, `unzip` |
+| **Included Utilities** | `mangohud` (`terra-mangohud`), `gamescope` (`terra-gamescope`), `lm_sensors`, `radeontop`, `vulkan-tools`, `umr`, `pciutils`, `sol-cu-manager` (`bc250-cu-live-manager`), `jq`, `git`, `curl`, `unzip` |
 | **Image Signing** | Cryptographically signed via Sigstore `cosign` (`cosign.pub` + GitHub Actions `SIGNING_SECRET`) |
 
 > **Immutable Layout Note:** All Sol OS binaries and scripts live immutably under `/usr/libexec/sol-os/` and are symlinked into `/usr/local/bin/` at boot via `/usr/lib/tmpfiles.d/sol-os-local-bin.conf`, keeping `/usr` atomic across `rpm-ostree` / `bootc` updates.
@@ -320,3 +320,21 @@ Because the AMD BC-250 APU ("Cyan Skillfish") has its fixed-function **VCN hardw
     ```
 
 > **Note on Plex Server vs. Direct Play:** As a **Plex HTPC client**, **Direct Play** 4K streams play smoothly on the BC-250. Avoid using the BC-250 as a Plex Media Server for real-time 4K HDR-to-SDR **server transcoding**, as the lack of VCN requires full CPU software transcoding.
+
+---
+
+## 10. Opt-In GPU CU (36–40 CU) & CPU Core Manager (`sol-cu-manager`)
+
+Sol OS boots safely at **24 CUs / 6 cores** by default, because salvaged BC-250 silicon varies significantly and forcing all 40 CUs at boot can cause visual artifacts or hard lockups on boards with defective Workgroup Processors (WGPs). For users who want to test and unlock additional GPU CUs (typically reaching a stable **36–38 CU** sweet spot or full **40 CUs**) or unlock all 8 CPU cores, Sol OS includes `umr` and an opt-in interactive TUI/CLI (`sol-cu-manager` / `bc250-cu-live-manager`):
+
+```bash
+sudo sol-cu-manager            # Open interactive live CU/WGP & CPU manager TUI
+sudo sol-cu-manager status     # Show current active CU/WGP register topology
+sudo sol-cu-manager enable all # Test enabling all 40 CUs live until reboot
+sudo sol-cu-manager stock-dispatch # Revert immediately to driver's stock 24-CU mask
+```
+
+### Testing & Persisting Safely
+1. **Stress-test live first:** Use `table` or `enable all` inside `sudo sol-cu-manager` and test demanding 3D games before saving anything to boot. If artifacts or crashes appear, disable the unstable WGP pair(s) (36–38 CUs is common) until rock-solid.
+2. **Watch power & thermals:** Enabling 36–40 CUs adds roughly **+30 W** under full GPU load. Ensure active backplate + heatsink cooling and consider capping max frequency around **`1500–1700 MHz`** (or raising voltage slightly) in `/etc/cyan-skillfish-governor-smu/config.toml`.
+3. **Persist only after verifying stability:** Once tested, save your verified mask and opt in to the boot service from inside `sudo sol-cu-manager` (`write-service-table`, then `install-service`). To revert later, run `sudo sol-cu-manager uninstall-service`.

@@ -83,6 +83,8 @@ modules:
         - jq
         - vulkan-tools
         - radeontop
+        - umr
+        - pciutils
 
   - type: default-flatpaks
     configurations:
@@ -101,6 +103,7 @@ modules:
       - configure-branding.sh
       - configure-theme.sh
       - stage-helixsr.sh
+      - install-bc250-cu-manager.sh
 
   - type: systemd
     system:
